@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "DeepSeek Harness",
-  "short_name": "DSH",
+  "name": "SmartFox Harness",
+  "short_name": "SFH",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",
