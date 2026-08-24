@@ -102,6 +102,8 @@ export function HeroGlow({ className }: { className?: string | undefined }) {
 export interface HeroShellProps {
   /** The owner's locale seat, passed down as a plain prop. */
   t: HeroTranslate
+  /** Authorized renderer for the hero brand-mark slot. */
+  renderSlot: ConversationSlotProps['renderSlot']
   /** Overlay content after the stack (modals). */
   children?: ReactNode
 }
@@ -112,14 +114,16 @@ export interface HeroShellProps {
  * @param props - see {@link HeroShellProps}.
  * @returns the centered hero element tree.
  */
-export function HeroShell({ t, children }: HeroShellProps) {
+export function HeroShell({ t, renderSlot, children }: HeroShellProps) {
   return (
     <div className={css.root}>
       <div className={css.stack}>
         <div className={css.headline}>
           {/* fox mark 34 wide leading the headline, gap 10. */}
           <span className={css.foxHitbox}>
-            <FoxLogo size={34} className={css.fox} />
+            {renderSlot('conversation.hero.brand.mark', { size: 34, className: css.fox }, {
+              fallback: <FoxLogo size={34} className={css.fox} />,
+            })}
           </span>
           <span className={css.headlineText}>{t('hero.headline')}</span>
         </div>

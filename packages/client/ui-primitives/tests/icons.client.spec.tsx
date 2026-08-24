@@ -65,3 +65,16 @@ describe('FoxLogo', () => {
     expect(container.innerHTML).toContain('currentColor')
   })
 })
+
+describe('BrandWordmark', () => {
+  it('can render the name artwork with or without its leading mark', () => {
+    const view = render(<primitives.BrandWordmark />)
+    const svg = view.container.querySelector('svg')!
+    expect(svg.getAttribute('width')).toBe('120')
+    expect(svg.getAttribute('viewBox')).toBe('0 0 120 24')
+
+    view.rerender(<primitives.BrandWordmark includeMark={false} />)
+    expect(svg.getAttribute('width')).toBe('94')
+    expect(svg.getAttribute('viewBox')).toBe('26 0 94 24')
+  })
+})
