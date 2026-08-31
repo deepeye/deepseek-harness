@@ -1,6 +1,7 @@
 /** Official SmartFox Harness occupants for the generic browser-brand slots. */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { OfficialBrandMark, OfficialBrandName } from './Brand.tsx'
 
@@ -8,7 +9,8 @@ import { OfficialBrandMark, OfficialBrandName } from './Brand.tsx'
 export const inject = ['slots']
 
 /**
- * Fill every shipped brand slot as one declaration-aware registration set.
+ * Fill every shipped brand slot as one declaration-aware registration set in
+ * every build profile.
  * @param ctx - Client root context.
  */
 export function apply(ctx: ClientContext): void {
