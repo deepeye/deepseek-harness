@@ -13,7 +13,7 @@ Status: implemented
 两个 profile 现在都接受 `--host 0.0.0.0`，依据是既有防线已经承载了公网暴露的威胁模型：
 
 - **web GUI 并非无鉴权。** process-token URL → 签名 cookie 的交换（`dsh-client-connection` 的 browser-auth）对每个 Host API 方法与 WebSocket stream 都设了门槛，因此旧拒绝拦的是*已鉴权*表面的网络可达性，而不是一个开放的表面。
-- **浏览器信任栅栏保持显式。** 全接口绑定时只自动信任本机自身的非内部 IPv4 字面量（`resolveLanTrust`）；公网域名或地址必须用 `--trusted-host` 显式声明，保留 DNS rebinding 防护。全接口绑定从不意味着"信任任意 Host 头"。
+- **浏览器信任栅栏保持显式。** 全接口绑定时只自动信任本机自身的非内部 IPv4 字面量（`resolveLanTrust`）；公网域名或地址必须用 `--trusted-host` 显式声明，保留 DNS rebinding 防护。全接口绑定从不意味着"信任任意 Host 头"。云主机（如 aliyun ECS）的公网 IP 常以 1:1 NAT 映射到私网网卡地址，`resolveLanTrust` 只采样到私网 IP，公网 IP 仍需用 `--trusted-host` 显式声明。
 - **启动警告取代硬拒绝。** 两个 profile 都通过 `dsh-cmdline` 的 internals stderr 通道打印警告：凭据（web：process token 与会话 cookie；service：bearer token）经明文 HTTP 传输、可被窃听，公网部署应置于 TLS 反向代理之后。webserver 没有 TLS 方案；警告如实陈述这一边界，而不是假装这个参数是安全的。
 
 service profile 补上了缺失的参数面：`service-startup` 提供者（镜像 web profile 的 `web-startup`）解析 `--host` 与 `--port`，按 参数 → 环境变量（`DSH_SERVICE_HOST`/`DSH_SERVICE_PORT`，空值视为未设置）→ 默认值（`127.0.0.1`/`0`）的优先级解析，并把结果作为 `serviceStartup` 服务提供给 webserver 行读取。与只发布本次调用所给参数的 web 提供者不同，service 提供者完整拥有解析过程——因此非法的环境变量值现在会在解析期报错并点名变量，而不是被静默改写。`DSH_SERVICE_TOKEN` 刻意不设参数：命令行参数对 `ps` 可见，token 参数会把凭据泄漏给同机的所有用户。

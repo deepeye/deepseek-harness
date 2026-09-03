@@ -55,7 +55,7 @@ By default the GUI accepts connections from this machine only. A deployment that
 
 ### Public exposure
 
-`--host 0.0.0.0` accepts connections from any interface, and the startup line warns that the process token and session cookie travel over plaintext HTTP and can be sniffed — front a public deployment with a TLS-terminating reverse proxy. A public hostname or address is also not in the sampled LAN trust, so name it explicitly: `dsh --profile web --host 0.0.0.0 --trusted-host gui.example.com`. The `--host` flag accepts only `127.0.0.1` and `0.0.0.0`.
+`--host 0.0.0.0` accepts connections from any interface, and the startup line warns that the process token and session cookie travel over plaintext HTTP and can be sniffed — front a public deployment with a TLS-terminating reverse proxy. A public hostname or address is also not in the sampled LAN trust, so name it explicitly: `dsh --profile web --host 0.0.0.0 --trusted-host gui.example.com`. On a cloud VM the public IP is often NAT'd to a private interface address, so it is not sampled either — name it with `--trusted-host <public-ip>`. The `--host` flag accepts only `127.0.0.1` and `0.0.0.0`.
 
 ### Running over SSH
 
