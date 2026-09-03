@@ -199,6 +199,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Carries the picking seam onto the wire: capability gating, cancellation, and the seam-coded failures a browser directory flow discriminates on.',
   },
   {
+    key: 'taskService',
+    pkg: 'api-task-service',
+    title: 'Remote task HTTP service',
+    mode: 'core',
+    note: 'Submits one Agent session per task over the webserver and projects the session log as SSE progress, queryable results, cancellation, and completion webhooks.',
+  },
+  {
     key: 'invariants',
     pkg: 'invariants',
     title: 'Package-owned invariant registry',

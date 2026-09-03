@@ -2376,6 +2376,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'taskService',
+    summary: 'Serve task submission and observation over the web server.',
+    description: 'Serve task submission and observation over the web server. Registrations are effects of this service\'s fiber: disposing it removes the routes and event subscriptions. The in-memory registry does not survive a restart; finished agents are retained for result queries.',
+    methods: [
+      {
+        signature: 'hasTask(taskId: string): boolean',
+        description: 'Whether one session id has a registered task. Read by the package invariant companion to scope its agent-liveness check.',
+        parameters: [{ name: 'taskId', description: 'session id in wire form.' }],
+        returns: 'whether a task record exists for the id.',
+      },
+      {
+        signature: 'staleTaskIds(): readonly string[]',
+        description: 'Task ids whose record no longer holds the agent registry\'s live agent. Read by the package invariant companion; an empty result is the healthy one.',
+        parameters: [],
+        returns: 'the stale task ids in registration order.',
+      },
+    ],
+  },
+  {
     key: 'terminals',
     summary: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',
     description: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',

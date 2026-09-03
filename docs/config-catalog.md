@@ -2570,6 +2570,31 @@ export interface Config {
 
 Source: [`packages/core/system-prompt/src/index.ts:237`](../packages/core/system-prompt/src/index.ts)
 
+<a id="deepseek-aidsh-task-service"></a>
+
+## `@deepseek-ai/dsh-task-service`
+
+Requires: `agentDefaultModel` · `agents` · `webServer`
+
+```ts config-catalog
+/** Task-service configuration. */
+export interface Config {
+  /**
+   * Bearer token every request must present in `Authorization: Bearer <token>`.
+   * An empty value fails the load; there is no anonymous mode.
+   */
+  readonly token: string
+  /** Default completion webhook URL, used when a task submits no override. @optional */
+  readonly webhookUrl?: string
+  /** Per-attempt webhook delivery timeout in milliseconds. @default 10000 */
+  readonly webhookTimeoutMs?: number
+  /** Webhook redelivery attempts after the first failure. @default 2 */
+  readonly webhookRetries?: number
+}
+```
+
+Source: [`packages/api/task-service/src/index.ts:47`](../packages/api/task-service/src/index.ts)
+
 <a id="deepseek-aidsh-terminal-bash"></a>
 
 ## `@deepseek-ai/dsh-terminal-bash`
@@ -3541,6 +3566,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-sdk-client` ([`packages/sdk/client/src/index.ts`](../packages/sdk/client/src/index.ts))
 - `@deepseek-ai/dsh-sdk-minimal` ([`packages/bundle/sdk-minimal/src/index.ts`](../packages/bundle/sdk-minimal/src/index.ts))
 - `@deepseek-ai/dsh-sdk-protocol` ([`packages/sdk/protocol/src/index.ts`](../packages/sdk/protocol/src/index.ts))
+- `@deepseek-ai/dsh-service-app` ([`packages/bundle/service-app/src/index.ts`](../packages/bundle/service-app/src/index.ts))
 - `@deepseek-ai/dsh-session-snapshot` ([`packages/test-support/session-snapshot/src/index.ts`](../packages/test-support/session-snapshot/src/index.ts))
 - `@deepseek-ai/dsh-session-telemetry` ([`packages/session/session-telemetry/src/index.ts`](../packages/session/session-telemetry/src/index.ts))
 - `@deepseek-ai/dsh-session-title-llm` ([`packages/session/session-title-llm/src/index.ts`](../packages/session/session-title-llm/src/index.ts))

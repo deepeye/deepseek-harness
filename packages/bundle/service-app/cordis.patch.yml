@@ -1,0 +1,46 @@
+# The dsh remote task service over dsh-base. An unattended service has no one
+# to ask, so the profile composes the fail-closed `never` approval policy and
+# pins the default permission preset to a matching `service` entry
+# (workspace-write sandbox, rejects approval-needing operations). The other
+# presets stay selectable; the base layer's DSH_PERMISSION_MODE still sets the
+# process sandbox fallback, while sessions created by the task service pin the
+# `service` preset unless a deployment restates `defaultPreset`.
+#
+# A patch replaces the targeted row's whole `config`, so the permission row
+# restates every preset the base layer declared.
+
+- id: approval
+  config:
+    policy: 'never'
+
+- id: permission
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+      service:
+        sandbox: workspace-write
+        approval: never
+        name: service
+        description: 'Unattended — write inside the workspace; approval-needing operations are rejected.'
+    defaultPreset: 'service'
+
+- insert:
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: !!js "process.env.DSH_SERVICE_HOST === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1'"
+        port: !!js "Number(process.env.DSH_SERVICE_PORT ?? 0)"
+
+    - id: task-service
+      name: '@deepseek-ai/dsh-task-service'
+      config:
+        token: !!js "process.env.DSH_SERVICE_TOKEN ?? ''"
+        webhookUrl: !!js "process.env.DSH_SERVICE_WEBHOOK_URL || undefined"

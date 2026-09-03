@@ -155,6 +155,10 @@ export const PROFILE_TEMPLATES: Record<string, ProfileTemplate> = {
     bundles: ['@deepseek-ai/dsh-sdk-minimal'],
     patchReload: 'startup',
   },
+  service: {
+    bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-service-app'],
+    patchReload: 'startup',
+  },
 }
 
 /** Installation-owned bundle tuples normalized to the shipped template. */

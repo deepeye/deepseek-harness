@@ -60,6 +60,31 @@ interface Config {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxtaskservice--taskservice"></a>
+
+### `ctx.taskService` — `TaskService`
+
+Serve task submission and observation over the web server. Registrations are effects of this service's fiber: disposing it removes the routes and event subscriptions. The in-memory registry does not survive a restart; finished agents are retained for result queries.
+
+```ts cordis-catalog
+/**
+ * Whether one session id has a registered task. Read by the package
+ * invariant companion to scope its agent-liveness check.
+ * @param taskId - session id in wire form.
+ * @returns whether a task record exists for the id.
+ */
+hasTask(taskId: string): boolean
+
+/**
+ * Task ids whose record no longer holds the agent registry's live agent.
+ * Read by the package invariant companion; an empty result is the healthy one.
+ * @returns the stale task ids in registration order.
+ */
+staleTaskIds(): readonly string[]
+```
+
+Source: [`packages/api/task-service/src/index.ts`](../../packages/api/task-service/src/index.ts)
+
 <a id="ctxwebserver--webserver"></a>
 
 ### `ctx.webServer` — `WebServer`
