@@ -1,7 +1,9 @@
 /**
- * @deepseek-ai/dsh-service-app — static patch-list carrier for the remote
- * service profile. The bundle inserts the webserver and task-service rows and
- * replaces the approval row over dsh-base; it mounts no service of its own.
+ * @deepseek-ai/dsh-service-app — the remote service profile bundle. The patch
+ * inserts the service-startup, webserver, and task-service rows and replaces
+ * the approval row over dsh-base; the startup plugin (./startup) is the only
+ * runtime code, resolving the listen pair from the invocation flags and
+ * deployment environment.
  *
  * @module @deepseek-ai/dsh-service-app
  */

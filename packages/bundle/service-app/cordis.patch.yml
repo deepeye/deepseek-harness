@@ -33,11 +33,21 @@
     defaultPreset: 'service'
 
 - insert:
+    # Ordinary provider for the parsed service flags and their environment
+    # fallbacks (DSH_SERVICE_HOST / DSH_SERVICE_PORT). It fully resolves the
+    # listen pair so an invalid environment value fails at parse time; no
+    # launcher metadata or special row kind is needed.
+    - id: service-startup
+      name: '@deepseek-ai/dsh-service-app/startup'
+
+    # Plain route-registration carrier; host and port are the serviceStartup
+    # provider's resolved values (flag first, environment fallback, default).
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
+      inject: [serviceStartup]
       config:
-        host: !!js "process.env.DSH_SERVICE_HOST === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1'"
-        port: !!js "Number(process.env.DSH_SERVICE_PORT ?? 0)"
+        host: !!js ctx.serviceStartup.host
+        port: !!js ctx.serviceStartup.port
 
     - id: task-service
       name: '@deepseek-ai/dsh-task-service'

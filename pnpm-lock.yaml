@@ -1498,12 +1498,18 @@ importers:
 
   packages/bundle/service-app:
     dependencies:
+      '@deepseek-ai/dsh-cmdline':
+        specifier: workspace:^
+        version: link:../../boot/cmdline
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
       '@deepseek-ai/dsh-task-service':
         specifier: workspace:^
         version: link:../../api/task-service
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

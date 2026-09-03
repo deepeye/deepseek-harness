@@ -405,6 +405,7 @@
       "@deepseek-ai/dsh-sdk-minimal/invariant": ["./packages/bundle/sdk-minimal/src/invariant.ts"],
       "@deepseek-ai/dsh-service-app": ["./packages/bundle/service-app/src"],
       "@deepseek-ai/dsh-service-app/invariant": ["./packages/bundle/service-app/src/invariant.ts"],
+      "@deepseek-ai/dsh-service-app/startup": ["./packages/bundle/service-app/src/startup.ts"],
       "@deepseek-ai/dsh-session": ["./packages/core/session/src"],
       "@deepseek-ai/dsh-session-checkpoint-policy": ["./packages/session/session-checkpoint-policy/src"],
       "@deepseek-ai/dsh-session-checkpoint-policy/invariant": ["./packages/session/session-checkpoint-policy/src/invariant.ts"],

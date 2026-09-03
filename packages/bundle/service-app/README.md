@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-service-app` is the profile bundle behind `dsh --profile service`: it layers the remote task HTTP surface over `dsh-base` so a local web or desktop client can submit agent tasks, watch progress over SSE, and collect results. It sets the unattended safety stance — the service never prompts anyone; operations that would need approval are rejected — while the sandbox still bounds file effects to the workspace by default. The bundle inserts two rows (the webserver and the [task service](../../api/task-service/README.md)) and restates the approval and permission rows; it owns no plugin of its own.
+`dsh-service-app` is the profile bundle behind `dsh --profile service`: it layers the remote task HTTP surface over `dsh-base` so a local web or desktop client can submit agent tasks, watch progress over SSE, and collect results. It sets the unattended safety stance — the service never prompts anyone; operations that would need approval are rejected — while the sandbox still bounds file effects to the workspace by default. The bundle inserts three rows (the startup flag provider, the webserver, and the [task service](../../api/task-service/README.md)) and restates the approval and permission rows; its one plugin is that startup provider.
 
 ## Table of Contents
 
@@ -25,18 +25,21 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Run the profile with a token; the listening port and host are environment-driven:
+Run the profile with a token; the listen pair comes from the invocation flags or, when a flag is absent, the matching environment variable:
 
 ```sh
 DSH_SERVICE_TOKEN=change-me dsh --profile service
+DSH_SERVICE_TOKEN=change-me dsh --profile service --host 0.0.0.0 --port 18923
 ```
 
-| Environment variable | Default | Meaning |
-|---|---|---|
-| `DSH_SERVICE_TOKEN` | required | Bearer token for every task-service route; empty fails the load |
-| `DSH_SERVICE_PORT` | `0` | Listen port; `0` picks an OS-assigned port |
-| `DSH_SERVICE_HOST` | `127.0.0.1` | Listen host; `0.0.0.0` accepts remote connections |
-| `DSH_SERVICE_WEBHOOK_URL` | — | Service-wide default completion webhook |
+| Flag | Environment variable | Default | Meaning |
+|---|---|---|---|
+| — | `DSH_SERVICE_TOKEN` | required | Bearer token for every task-service route; empty fails the load (environment only — the token never takes a flag, which `ps` would expose) |
+| `--port <port>` | `DSH_SERVICE_PORT` | `0` | Listen port; `0` picks an OS-assigned port |
+| `--host <host>` | `DSH_SERVICE_HOST` | `127.0.0.1` | Bind host; `0.0.0.0` accepts remote connections |
+| — | `DSH_SERVICE_WEBHOOK_URL` | — | Service-wide default completion webhook |
+
+A flag overrides its environment variable for that invocation; an empty environment value reads as unset. An invalid `--host` (only `127.0.0.1` and `0.0.0.0` are supported), `--port`, `DSH_SERVICE_HOST`, or `DSH_SERVICE_PORT` value fails at startup instead of being silently coerced. An all-interfaces bind prints a warning: the bearer token travels over plaintext HTTP and can be sniffed, so front a public deployment with a TLS-terminating reverse proxy.
 
 The HTTP surface, its request/response contract, and the SSE frames are owned by [`dsh-task-service`](../../api/task-service/README.md). Submit against `http://127.0.0.1:PORT/tasks` with the token as bearer.
 
@@ -52,11 +55,12 @@ The profile replaces the base `approval` row with the fail-closed `never` policy
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package is a static patch-list carrier over `dsh-base`: `cordis.patch.yml` replaces the `approval` row (`policy: never`) and the `permission` row (the base presets restated plus a `service` preset and `defaultPreset: service`), then inserts the `webserver` row (env-driven host/port) and the `task-service` row (env-driven token and default webhook). A patch replaces a targeted row's whole config, which is why the permission row restates every base preset. `src/index.ts` exports nothing; the bundle owns no service, and its invariant companion registers an empty installer for that reason.
+The package is a patch-list carrier over `dsh-base` with one runtime plugin: `cordis.patch.yml` replaces the `approval` row (`policy: never`) and the `permission` row (the base presets restated plus a `service` preset and `defaultPreset: service`), then inserts the `service-startup` provider, the `webserver` row (the provider's resolved host/port), and the `task-service` row (env-driven token and default webhook). A patch replaces a targeted row's whole config, which is why the permission row restates every base preset. The startup plugin owns the whole listen resolution — flag, environment fallback, default — so an invalid environment value fails at parse time. `src/index.ts` exports nothing; the invariant companion registers an empty installer because the provider publishes immutable values with no relation to check.
 
 | File | Role |
 |---|---|
 | [`cordis.patch.yml`](cordis.patch.yml) | The service patch over `dsh-base` |
+| [`src/startup.ts`](src/startup.ts) | The `service-startup` provider: `--host`, `--port`, `--help`, environment fallbacks, the public-bind warning |
 | [`src/index.ts`](src/index.ts) | Empty module marker (patch-only bundle) |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion: no runtime invariant; the rows are owned by their packages |
 

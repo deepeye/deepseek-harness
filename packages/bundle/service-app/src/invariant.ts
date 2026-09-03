@@ -13,10 +13,11 @@ export const name = 'service-app-bundle-invariant'
 /** Service required before the companion can register. */
 export const inject = ['invariants']
 
-// No runtime invariant: the package is a static patch-list carrier (a YAML
-// document of loader rows owned by other packages); it mounts no service,
-// emits no events, and owns no mutable relation to check. Each inserted row's
-// own package carries that row's invariants.
+// No runtime invariant: the package's runtime contribution is the
+// service-startup provider, which publishes immutable resolved listen values
+// and owns no mutable relation to check; every other contribution is a loader
+// row in the patch document, and each inserted row's own package carries that
+// row's invariants.
 const install: InvariantInstaller = () => {}
 
 /**

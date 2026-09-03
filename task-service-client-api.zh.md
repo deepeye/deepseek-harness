@@ -17,7 +17,8 @@ http://127.0.0.1:{PORT}
 ```
 
 - 默认端口由服务端环境变量 `DSH_SERVICE_PORT` 决定(`0` 表示随机端口,启动日志可见;建议部署时固定端口)
-- 默认只监听 `127.0.0.1`;如需跨机访问由服务端设置 `DSH_SERVICE_HOST=0.0.0.0`
+- 默认只监听 `127.0.0.1`;如需跨机访问可传 `--host 0.0.0.0`,或设置 `DSH_SERVICE_HOST=0.0.0.0`
+- 参数优先级:`--host` / `--port` 参数 > `DSH_SERVICE_HOST` / `DSH_SERVICE_PORT` 环境变量 > 默认值(`127.0.0.1` / `0`)
 
 ### 1.2 鉴权
 
@@ -47,17 +48,27 @@ Authorization: Bearer {DSH_SERVICE_TOKEN}
 
 ```sh
 DSH_SERVICE_TOKEN=smoke-token DSH_SERVICE_PORT=18923 pnpm dsh --profile service
+# 或显式指定监听
+DSH_SERVICE_TOKEN=smoke-token pnpm dsh --profile service --host 0.0.0.0 --port 18923
 ```
 
 (`pnpm dsh service` 等价于 `node --import tsx/esm apps/cli/src/bin.ts --profile service`)
+
+**启动参数**
+
+| 参数 | 说明 |
+|---|---|
+| `--host 127.0.0.1 \| 0.0.0.0` | 绑定主机,缺省时回退到 `DSH_SERVICE_HOST`,默认 `127.0.0.1` |
+| `--port <port>` | 监听端口,缺省时回退到 `DSH_SERVICE_PORT`,默认 `0`(OS 随机端口) |
+| `--help` | 显示帮助 |
 
 **启动环境变量**
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `DSH_SERVICE_TOKEN` | 是 | bearer token,空值启动即失败 |
+| `DSH_SERVICE_TOKEN` | 是 | bearer token,空值启动即失败。仅环境变量,不设 `--token` 参数(避免被 `ps` 看到) |
 | `DSH_SERVICE_PORT` | 否 | 默认 `0`(OS 随机端口);建议固定如 `18923` |
-| `DSH_SERVICE_HOST` | 否 | 默认 `127.0.0.1`;`0.0.0.0` 才接受远程连接 |
+| `DSH_SERVICE_HOST` | 否 | 默认 `127.0.0.1`;`0.0.0.0` 接受远程连接 |
 | `DSH_SERVICE_WEBHOOK_URL` | 否 | 全局默认完成回调地址 |
 | `DSH_PERMISSION_MODE` | 否 | 沙箱模式,默认 `workspace-write`;`danger-full-access` 放开文件权限 |
 | `DEEPSEEK_API_KEY` | 任务需要 | 根目录 `.env` 已配置,启动时自动加载 |
@@ -68,6 +79,8 @@ DSH_SERVICE_TOKEN=smoke-token DSH_SERVICE_PORT=18923 pnpm dsh --profile service
 DSH_SERVICE_TOKEN=smoke-token DSH_SERVICE_PORT=18923 \
   nohup pnpm dsh --profile service > /tmp/dsh-service.log 2>&1 &
 ```
+
+公网部署时请置于 TLS 反向代理之后;`--host 0.0.0.0` 启动时会警告明文 HTTP 下 token 可被窃听。
 
 **启动验证**
 

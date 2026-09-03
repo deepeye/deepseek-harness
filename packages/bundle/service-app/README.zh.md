@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-service-app` 是 `dsh --profile service` 背后的 profile bundle：它在 `dsh-base` 之上叠加远程任务 HTTP 面，让本地 web 或 desktop 客户端能够提交 agent 任务、通过 SSE 观察进度并取回结果。它设定了无人值守的安全姿态——服务不会向任何人请求确认，需要审批的操作一律拒绝——同时沙箱默认仍把文件影响限制在工作区内。该 bundle 插入两行（webserver 与[任务服务](../../api/task-service/README.zh.md)），并重述 approval 与 permission 两行；它自身不拥有任何插件。
+`dsh-service-app` 是 `dsh --profile service` 背后的 profile bundle：它在 `dsh-base` 之上叠加远程任务 HTTP 面，让本地 web 或 desktop 客户端能够提交 agent 任务、通过 SSE 观察进度并取回结果。它设定了无人值守的安全姿态——服务不会向任何人请求确认，需要审批的操作一律拒绝——同时沙箱默认仍把文件影响限制在工作区内。该 bundle 插入三行（startup 参数提供者、webserver 与[任务服务](../../api/task-service/README.zh.md)），并重述 approval 与 permission 两行；它唯一的插件就是那个 startup 参数提供者。
 
 ## 目录
 
@@ -25,18 +25,21 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## 使用本包
 
-携带 token 运行 profile；监听端口与主机由环境变量驱动：
+携带 token 运行 profile；监听主机/端口来自本次调用的参数，参数缺省时回退到对应的环境变量：
 
 ```sh
 DSH_SERVICE_TOKEN=change-me dsh --profile service
+DSH_SERVICE_TOKEN=change-me dsh --profile service --host 0.0.0.0 --port 18923
 ```
 
-| 环境变量 | 默认 | 含义 |
-|---|---|---|
-| `DSH_SERVICE_TOKEN` | 必填 | 每个任务服务路由的 bearer token；为空则加载失败 |
-| `DSH_SERVICE_PORT` | `0` | 监听端口；`0` 表示由操作系统分配 |
-| `DSH_SERVICE_HOST` | `127.0.0.1` | 监听主机；`0.0.0.0` 接受远程连接 |
-| `DSH_SERVICE_WEBHOOK_URL` | — | 服务级默认完成回调地址 |
+| 参数 | 环境变量 | 默认 | 含义 |
+|---|---|---|---|
+| — | `DSH_SERVICE_TOKEN` | 必填 | 每个任务服务路由的 bearer token；为空则加载失败（仅环境变量——token 不设参数，否则会被 `ps` 看到） |
+| `--port <port>` | `DSH_SERVICE_PORT` | `0` | 监听端口；`0` 表示由操作系统分配 |
+| `--host <host>` | `DSH_SERVICE_HOST` | `127.0.0.1` | 绑定主机；`0.0.0.0` 接受远程连接 |
+| — | `DSH_SERVICE_WEBHOOK_URL` | — | 服务级默认完成回调地址 |
+
+参数在本次调用中覆盖环境变量；空的环境变量值视为未设置。非法的 `--host`（仅支持 `127.0.0.1` 与 `0.0.0.0`）、`--port`、`DSH_SERVICE_HOST` 或 `DSH_SERVICE_PORT` 值会在启动时报错，而不是被静默改写。全接口绑定时会打印警告：bearer token 经明文 HTTP 传输、可被窃听，公网部署请在 TLS 反向代理之后暴露。
 
 HTTP 面、请求/响应契约以及 SSE 帧由 [`dsh-task-service`](../../api/task-service/README.zh.md) 负责。以 token 作为 bearer 向 `http://127.0.0.1:PORT/tasks` 提交。
 
@@ -52,11 +55,12 @@ profile 把 base 的 `approval` 行替换为 fail-closed 的 `never` 策略，�
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-本包是 `dsh-base` 之上的静态 patch 列表载体：`cordis.patch.yml` 替换 `approval` 行（`policy: never`）与 `permission` 行（重述 base 的全部预设，外加 `service` 预设与 `defaultPreset: service`），然后插入 `webserver` 行（环境变量驱动的主机/端口）与 `task-service` 行（环境变量驱动的 token 与默认回调）。patch 会整体替换目标行的 config，因此 permission 行必须重述 base 的每个预设。`src/index.ts` 不导出任何内容；bundle 不拥有服务，其不变式伴随插件因此注册空安装器。
+本包是 `dsh-base` 之上带一个运行时插件的 patch 列表载体：`cordis.patch.yml` 替换 `approval` 行（`policy: never`）与 `permission` 行（重述 base 的全部预设，外加 `service` 预设与 `defaultPreset: service`），然后插入 `service-startup` 提供者、`webserver` 行（读取提供者解析出的主机/端口）与 `task-service` 行（环境变量驱动的 token 与默认回调）。patch 会整体替换目标行的 config，因此 permission 行必须重述 base 的每个预设。startup 插件完整拥有监听值的解析——参数、环境变量回退、默认值——因此非法的环境变量值会在解析期报错。`src/index.ts` 不导出任何内容；不变式伴随插件注册空安装器，因为提供者发布的解析值不可变、没有可检查的关系。
 
 | 文件 | 职责 |
 |---|---|
 | [`cordis.patch.yml`](cordis.patch.yml) | `dsh-base` 之上的 service patch |
+| [`src/startup.ts`](src/startup.ts) | `service-startup` 提供者：`--host`、`--port`、`--help`、环境变量回退、公网绑定警告 |
 | [`src/index.ts`](src/index.ts) | 空模块标记（仅 patch 的 bundle） |
 | [`src/invariant.ts`](src/invariant.ts) | 不变式伴随插件：无运行时不变式；各行由各自所属包负责 |
 
