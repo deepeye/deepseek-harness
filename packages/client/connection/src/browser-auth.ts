@@ -180,18 +180,25 @@ async function initializeSecret(credentials: CredentialProvider): Promise<Buffer
 /**
  * Process launch-token exchange and persistent signed-cookie verification.
  * Connection loads the credential provider's signing secret during activation
- * and retains it for synchronous request authentication.
+ * and retains it for synchronous request authentication. When `authEnabled` is
+ * false the gates are no-ops — `authorizeIndex` serves the index, the /api
+ * request is never rejected for a missing cookie, the printed URL carries no
+ * token — and no durable signing secret is created; the Host/Origin trust fence
+ * in the carrier still applies.
  */
 export class BrowserAuth {
   private readonly launchToken: string
   private readonly maxAgeMilliseconds: number
+  private readonly authEnabled: boolean
 
   private constructor(
     processOwner: object,
     private readonly secret: Buffer,
     maxAgeDays: number,
+    authEnabled: boolean,
   ) {
-    this.launchToken = processLaunchToken(processOwner)
+    this.authEnabled = authEnabled
+    this.launchToken = authEnabled ? processLaunchToken(processOwner) : ''
     this.maxAgeMilliseconds = maxAgeDays * DAY_MILLISECONDS
     if (!Number.isSafeInteger(this.maxAgeMilliseconds)
       || !Number.isSafeInteger(Date.now() + this.maxAgeMilliseconds)) {
@@ -201,22 +208,29 @@ export class BrowserAuth {
 
   /**
    * Initialize browser authentication and create its durable signing secret
-   * when this Harness home has none.
+   * when this Harness home has none. When `authEnabled` is false the credential
+   * store is untouched: no signing secret is loaded or created, and the returned
+   * owner's gates are no-ops.
    * @param processOwner - root application context retaining one token across Connection reloads.
    * @param credentials - persistent credential provider for the Web profile.
    * @param maxAgeDays - positive absolute browser-cookie lifetime in days.
+   * @param authEnabled - whether the launch-token and cookie gates are active; default `true`.
    * @returns initialized authentication owner with the process owner's launch token.
    */
   static async create(
     processOwner: object,
     credentials: CredentialProvider,
     maxAgeDays: number,
+    authEnabled = true,
   ): Promise<BrowserAuth> {
-    return new BrowserAuth(processOwner, await initializeSecret(credentials), maxAgeDays)
+    if (!authEnabled) return new BrowserAuth(processOwner, Buffer.alloc(0), maxAgeDays, false)
+    return new BrowserAuth(processOwner, await initializeSecret(credentials), maxAgeDays, true)
   }
 
   /**
-   * Add this process's launch token to the ordinary application root URL.
+   * Add this process's launch token to the ordinary application root URL. When
+   * auth is disabled, return the bare root URL with no credential query
+   * parameter.
    * @param baseUrl - canonical browser origin without credentials.
    * @returns root URL carrying the process token as its sole authentication input.
    */
@@ -225,19 +239,22 @@ export class BrowserAuth {
     url.pathname = '/'
     url.search = ''
     url.hash = ''
-    url.searchParams.set(TOKEN_QUERY, this.launchToken)
+    if (this.authEnabled) url.searchParams.set(TOKEN_QUERY, this.launchToken)
     return url.href
   }
 
   /**
    * Authenticate an index request. A valid root query token mints the cookie
    * and redirects to clean `/`; a valid cookie lets the caller serve the
-   * index; every other request receives the same minimal 401 response.
+   * index; every other request receives the same minimal 401 response. When
+   * auth is disabled, every index request is served without exchange or
+   * challenge.
    * @param req - incoming root or configured-index request.
    * @param res - response owned when this method returns false.
    * @returns true only when the caller may serve index.html.
    */
   authorizeIndex(req: ConnectionIndexRequest, res: ConnectionIndexResponse): boolean {
+    if (!this.authEnabled) return true
     /* v8 ignore next -- node:http always supplies url on server requests. */
     const url = new URL(req.url ?? '/', 'http://dsh.invalid')
     const tokens = url.searchParams.getAll(TOKEN_QUERY)
@@ -282,11 +299,14 @@ export class BrowserAuth {
   }
 
   /**
-   * Verify the authority-bound browser cookie on a Host request.
+   * Verify the authority-bound browser cookie on a Host request. Returns true
+   * for every request when auth is disabled, so the carrier serves /api after
+   * the trust fence alone.
    * @param request - request headers carrying Host and Cookie.
    * @returns true only for an unexpired cookie signed by this activation's loaded secret.
    */
   isAuthenticated(request: ConnectionTrustRequest): boolean {
+    if (!this.authEnabled) return true
     const authority = requestAuthority(request.headers)
     const rawCookie = header(request.headers, 'cookie')
     if (authority === undefined || rawCookie === undefined) return false

@@ -81,7 +81,7 @@ function fakeResponse(): {
   return { response, state }
 }
 
-async function mounted(config?: { trustedHosts?: string[] }): Promise<{
+async function mounted(config?: { trustedHosts?: string[]; auth?: boolean }): Promise<{
   routes: WebRoute[]
   upgrades: WebUpgradeRoute[]
   connection: HostConnectionHandle
@@ -235,6 +235,33 @@ describe('connection node half', () => {
       host: 'harness.example',
       cookie: browserCookie(connection, 'harness.example'),
     }))).toBeUndefined()
+    await dispose()
+  })
+
+  it('drops the login gate but keeps the trust fence when auth is disabled', async () => {
+    const { routes, connection, dispose } = await mounted({ trustedHosts: ['harness.example'], auth: false })
+
+    // The /api trust fence still rejects an untrusted Host.
+    const forbidden = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: 'other.example' }), forbidden.response)
+    expect(forbidden.state).toMatchObject({ status: 403, body: 'forbidden' })
+
+    // A loopback Host reaches the bridge with no cookie: no 401.
+    const served = fakeResponse()
+    await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }), served.response)
+    expect(served.state.status).toBe(404)
+
+    // requestRejection: untrusted Host → 403; trusted/loopback → undefined (no 401).
+    expect(connection.requestRejection(fakeRequest({ host: 'other.example' }))).toBe(403)
+    expect(connection.requestRejection(fakeRequest({ host: '127.0.0.1:3080' }))).toBeUndefined()
+    expect(connection.requestRejection(fakeRequest({ host: 'harness.example' }))).toBeUndefined()
+
+    // The index is served without challenge; the printed URL carries no token.
+    const index = fakeResponse()
+    expect(connection.authorizeIndex(fakeRequest({ host: '127.0.0.1:3080' }, '/'), index.response)).toBe(true)
+    expect(index.state).toEqual({})
+    expect(connection.authenticatedUrl('http://127.0.0.1:3080')).toBe('http://127.0.0.1:3080/')
+
     await dispose()
   })
 

@@ -38,7 +38,7 @@ After startup you see a `dsh web:` line whose root URL carries a fresh process t
 
 ### Configuration
 
-Most users never set these; the command-line flags feed the four settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, and `--no-open` turns the browser handoff off for that invocation:
+Most users never set these; the command-line flags feed the four settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, `--no-open` turns the browser handoff off for that invocation, and `--no-auth` drops the connection login gate for that invocation (see [Disabling the login gate](#disabling-the-login-gate)):
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -56,6 +56,11 @@ By default the GUI accepts connections from this machine only. A deployment that
 ### Public exposure
 
 `--host 0.0.0.0` accepts connections from any interface, and the startup line warns that the process token and session cookie travel over plaintext HTTP and can be sniffed — front a public deployment with a TLS-terminating reverse proxy. A public hostname or address is also not in the sampled LAN trust, so name it explicitly: `dsh --profile web --host 0.0.0.0 --trusted-host gui.example.com`. On a cloud VM the public IP is often NAT'd to a private interface address, so it is not sampled either — name it with `--trusted-host <public-ip>`. The `--host` flag accepts only `127.0.0.1` and `0.0.0.0`.
+
+<a id="disabling-the-login-gate"></a>
+### Disabling the login gate
+
+`--no-auth` turns off the connection login gate for one invocation: the printed root URL carries no `?token=...`, the index is served without challenge, and `/api` is rejected only by the Host/Origin trust fence (403) — never for a missing cookie. It is intended for a loopback dev session, or for a deployment fronted by a TLS-terminating proxy that supplies its own authentication. Combining `--no-auth` with `--host 0.0.0.0` exposes the agent — shell, files, every `/api` method — to every reachable client with no authentication; the startup line prints a stderr warning to that effect instead of the token-sniffing warning. The Host/Origin trust fence still applies in both shapes.
 
 ### Running over SSH
 

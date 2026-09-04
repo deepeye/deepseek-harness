@@ -55,8 +55,9 @@ function createAuth(
   store: RecordCredentials,
   maxAgeDays = 30,
   processOwner: object = {},
+  authEnabled = true,
 ): Promise<BrowserAuth> {
-  return BrowserAuth.create(processOwner, credentials(store), maxAgeDays)
+  return BrowserAuth.create(processOwner, credentials(store), maxAgeDays, authEnabled)
 }
 
 function request(url: string, authority = '127.0.0.1:3080', init?: {
@@ -246,5 +247,34 @@ describe('BrowserAuth', () => {
 
     await expect(createAuth(new RecordCredentials(), Number.MAX_SAFE_INTEGER))
       .rejects.toThrow(/safe timestamp range/u)
+  })
+
+  it('serves every request without challenge and writes no secret when auth is disabled', async () => {
+    const store = new RecordCredentials()
+    const auth = await createAuth(store, 30, {}, false)
+    // No signing secret is created: the credential store stays untouched.
+    expect(store).toMatchObject({ reads: 0, modifies: 0 })
+    expect(store.record).toBeUndefined()
+
+    // The printed URL carries no process token.
+    expect(auth.authenticatedUrl('http://127.0.0.1:3080')).toBe('http://127.0.0.1:3080/')
+
+    // Every index request is served; the response object is left untouched.
+    for (const candidate of [
+      request('/'),
+      request('/?token=anything'),
+      request('/index.html'),
+      request('/', '127.0.0.1:3080', { method: 'HEAD' }),
+    ]) {
+      const res = response()
+      expect(auth.authorizeIndex(candidate, res.value)).toBe(true)
+      expect(res.state).toEqual({})
+    }
+
+    // Every /api request is considered authenticated. The carrier's Host/Origin
+    // trust fence still applies upstream, but BrowserAuth never rejects.
+    expect(auth.isAuthenticated(request('/', '127.0.0.1:3080'))).toBe(true)
+    expect(auth.isAuthenticated(request('/', 'harness.example:3080'))).toBe(true)
+    expect(auth.isAuthenticated({ headers: new Headers() })).toBe(true)
   })
 })

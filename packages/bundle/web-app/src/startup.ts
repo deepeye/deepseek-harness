@@ -29,6 +29,8 @@ export interface WebStartupValues {
   port?: number
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /** Whether the launch-token and browser-session cookie gate access; `--no-auth` sets this false. */
+  auth: boolean
 }
 
 /** The web flag family, as commander parsed it. */
@@ -37,6 +39,7 @@ interface WebOptions {
   open: boolean
   port?: string
   trustedHost?: string[]
+  auth: boolean
 }
 
 /** Bind-host literal that exposes every network interface. */
@@ -72,6 +75,16 @@ function warnPublicBind(): void {
 }
 
 /**
+ * Warn before an all-interfaces bind with auth disabled: there is no token or
+ * cookie to sniff, but every reachable client can drive `/api` (shell, files)
+ * unauthenticated. Fronting with TLS plus the proxy's own authentication is the
+ * only safe shape.
+ */
+function warnPublicNoAuth(): void {
+  internals.stderr.write(`dsh web: --host ${ALL_INTERFACES_HOST} with --no-auth exposes the agent to every reachable client with no authentication — anyone on the network can drive /api (shell, files). Front public deployments with a TLS-terminating proxy that supplies its own authentication, and name the public authority with --trusted-host\n`)
+}
+
+/**
  * This app's command: its flags, its description, and its help text.
  * @returns a fresh program, so one process can parse more than once (tests).
  */
@@ -84,11 +97,13 @@ function webCommand(): Command {
     .option('--no-open', 'do not open the Web UI in the default browser')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--no-auth', 'serve without the process-token / browser-session login gate (the /api Host/Origin trust fence still applies)')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --no-open                serve without opening a browser
   dsh --profile web --port 8080              serve on another port
+  dsh --profile web --no-auth                serve without the token login gate (loopback dev)
 `)
 }
 
@@ -107,12 +122,13 @@ export function apply(ctx: Context): void {
     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
     }
-    if (host === ALL_INTERFACES_HOST) warnPublicBind()
+    if (host === ALL_INTERFACES_HOST) (options.auth ? warnPublicBind : warnPublicNoAuth)()
     ctx.provide(WEB_STARTUP_SERVICE, {
       openBrowser: options.open,
       ...host !== undefined && { host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],
+      auth: options.auth,
     } satisfies WebStartupValues)
   })
   parseCmdline(ctx, program)

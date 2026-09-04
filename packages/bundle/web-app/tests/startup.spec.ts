@@ -59,6 +59,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    auth: !!js ctx.webStartup.auth',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -100,6 +101,7 @@ describe('web command-line provider', () => {
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      auth: true,
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -107,12 +109,13 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [], auth: true })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      auth: true,
     })
   })
 
@@ -121,6 +124,7 @@ describe('web command-line provider', () => {
     expect(observed.out).toContain('dsh --profile web')
     expect(observed.out).toContain('--no-open')
     expect(observed.out).toContain('--trusted-host')
+    expect(observed.out).toContain('--no-auth')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([0])
@@ -136,15 +140,39 @@ describe('web command-line provider', () => {
 
   it('accepts the all-interfaces host and warns about plaintext exposure', async () => {
     const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
-    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [] })
+    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [], auth: true })
     expect(observed.readerConfig).toEqual({
       host: '0.0.0.0',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      auth: true,
     })
     expect(observed.out).toContain('--host 0.0.0.0 exposes the GUI to the network')
     expect(observed.out).toContain('TLS-terminating reverse proxy')
+    expect(observed.exits).toEqual([])
+  })
+
+  it('disables the login gate on --no-auth and leaves the host fence standing', async () => {
+    const { values, observed } = await bootProvider(['--no-auth'])
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [], auth: false })
+    expect(observed.readerConfig).toEqual({
+      host: '127.0.0.1',
+      openBrowser: true,
+      port: 3080,
+      trustedHosts: [],
+      auth: false,
+    })
+    expect(observed.exits).toEqual([])
+  })
+
+  it('warns about unauthenticated network exposure when --no-auth meets --host 0.0.0.0', async () => {
+    const { values, observed } = await bootProvider(['--no-auth', '--host', '0.0.0.0'])
+    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [], auth: false })
+    expect(observed.out).toContain('--host 0.0.0.0 with --no-auth exposes the agent to every reachable client with no authentication')
+    expect(observed.out).toContain('TLS-terminating proxy that supplies its own authentication')
+    // The token-sniffing warning is for the auth-on shape and must not also fire here.
+    expect(observed.out).not.toContain('process token and session cookie travel over plaintext HTTP')
     expect(observed.exits).toEqual([])
   })
 

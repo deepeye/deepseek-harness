@@ -161,12 +161,17 @@
     # webserver under /api; browser half is the fetch/SSE client.
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
-      inject: [webRuntime]
+      inject: [webRuntime, webStartup]
       config:
         # LAN literals derived from the active bind plus --trusted-host extras.
         # A deployment adding authorities keeps this expression and concatenates
         # its literals, for example: ['app.internal', ...ctx.webRuntime.trustedHosts].
         trustedHosts: !!js ctx.webRuntime.trustedHosts
+        # The --no-auth invocation value: dropping the token/cookie gate is an
+        # invocation-only choice (no bind derivation), so it reads webStartup
+        # directly. A deployment that wants auth off persistently sets this true
+        # in its own overlay instead.
+        auth: !!js ctx.webStartup.auth
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'

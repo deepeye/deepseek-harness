@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-web-no-auth-opt-out.md
+2026-09-05-web-no-auth-opt-out.md: f9125ed81a450175617b9f93fc39fa74f10749f6
+2026-09-05-web-no-auth-opt-out.zh.md: 109e9dc1d9a3fa67de5c0a96f3e01c07ce0742c2

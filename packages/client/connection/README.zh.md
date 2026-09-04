@@ -38,6 +38,8 @@ cookie 签名密钥是 `ctx.credentials` 中由 `client-connection/browser-sessi
 
 认证之前，每个请求仍经过 `src/api-request-trust.ts`。其 `Host` 必须是 loopback，或与 `trustedHosts` 条目匹配：带端口的 `host:port` 精确匹配，不带端口的条目匹配任意端口，两侧均经 WHATWG 归一化。若附带 `Origin`，它必须等于该 Host；`sec-fetch-site: cross-site` 一律拒绝。畸形配置 authority 会让插件加载失败。这些检查防御 DNS rebinding 与跨站浏览器请求，绝不建立身份。Host/Origin 校验失败返回 403；Host 可信但未认证的请求返回 401。`dsh web --host 0.0.0.0` 仍不受支持。决策记录：[浏览器请求信任](../../../.agents/notes/implemented/architecture/2026-07-28-api-browser-trust-boundary.zh.md)与[浏览器令牌认证](../../../.agents/notes/implemented/architecture/2026-08-24-browser-token-authentication.zh.md)。
 
+`auth` 配置字段（默认 `true`）在上面的启动令牌交换与浏览器 cookie 之后为 `/api` 与 index 设门。`dsh --profile web --no-auth` 为本次调用将其置为 `false`：打印的根 URL 不带 `?token=...`，`authorizeIndex` 不经盘问即提供 index，而 `/api` 请求仅由 Host/Origin 信任栅栏拒绝（403）——绝不因 cookie 缺失而拒绝（无 401）。不创建也不加载签名密钥，因此 `client-connection/browser-session` 凭据记录保持不动。该标志用于 loopback 开发会话，或由自带认证的 TLS 终止反向代理前置的部署；将 `--no-auth` 与 `--host 0.0.0.0` 组合会把 agent 暴露给所有可达客户端，并在 stderr 打印相应警告。
+
 <a id="connection-generation"></a>
 ## Connection generation
 

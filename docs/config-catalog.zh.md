@@ -339,6 +339,16 @@ export interface ConnectionConfig {
   cookieMaxAgeDays?: number
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Whether the launch-token exchange and browser-session cookie gate `/api` and
+   * the index. Default: `true`. When `false` the process token is dropped from
+   * the printed URL, the index is served without challenge, and a `/api` request
+   * is rejected only by the Host/Origin trust fence — never for a missing
+   * cookie. Intended for a loopback dev session or a deployment fronted by a
+   * TLS-terminating proxy that supplies its own authentication; combining it
+   * with a non-loopback bind exposes the agent to every reachable client.
+   */
+  auth?: boolean
 }
 ```
 

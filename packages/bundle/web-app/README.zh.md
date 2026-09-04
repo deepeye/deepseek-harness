@@ -38,7 +38,7 @@ dsh --profile web --no-open --port 8080
 
 ### 配置
 
-大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接：
+大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接，`--no-auth` 仅对本次调用关闭 connection 登录门（见[关闭登录门](#disabling-the-login-gate)）：
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -56,6 +56,11 @@ dsh --profile web --no-open --port 8080
 ### 公网暴露
 
 `--host 0.0.0.0` 接受来自任意网卡的连接，启动时会警告：process token 与会话 cookie 经明文 HTTP 传输、可被窃听——公网部署请在 TLS 反向代理之后暴露。公网域名或地址也不在采样出的 LAN 信任列表里，需显式声明：`dsh --profile web --host 0.0.0.0 --trusted-host gui.example.com`。云主机的公网 IP 常以 NAT 映射到私网网卡地址，因此也不在采样之列——用 `--trusted-host <公网 IP>` 显式声明。`--host` 参数仅接受 `127.0.0.1` 与 `0.0.0.0`。
+
+<a id="disabling-the-login-gate"></a>
+### 关闭登录门
+
+`--no-auth` 仅对本次调用关闭 connection 登录门：打印的根 URL 不带 `?token=...`，index 不经盘问即提供，`/api` 仅由 Host/Origin 信任栅栏拒绝（403）——绝不因 cookie 缺失而拒绝。它用于 loopback 开发会话，或由自带认证的 TLS 终止反向代理前置的部署。将 `--no-auth` 与 `--host 0.0.0.0` 组合会把 agent——shell、文件、每个 `/api` 方法——暴露给所有可达客户端且无任何认证；此时启动行在 stderr 打印相应警告，而非 token 窃听警告。两种形态下 Host/Origin 信任栅栏都仍然生效。
 
 ### 通过 SSH 运行
 
