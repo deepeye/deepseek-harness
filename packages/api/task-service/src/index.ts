@@ -269,7 +269,7 @@ export class TaskService extends Service {
       }
       // Backfill first, then drain the subscription queue; seq dedupe closes
       // the gap between subscribing and snapshotting.
-      for (const event of record.agent.session.events) {
+      for (const event of record.agent.session.ownEvents()) {
         if (event.seq >= record.firstSeq) send(event)
       }
       while (!res.writableEnded && !res.destroyed) {
@@ -290,7 +290,7 @@ export class TaskService extends Service {
   /** Derive the final outcome from the session log, publish it, and deliver the webhook. */
   private finish(record: TaskRecord, end: SessionEvent<'turn/end'>): void {
     let text = ''
-    for (const event of record.agent.session.events) {
+    for (const event of record.agent.session.ownEvents()) {
       if (event.seq < record.firstSeq || event.type !== 'assistant/message') continue
       const joined = event.data.message.content
         .filter(block => block.type === 'text')

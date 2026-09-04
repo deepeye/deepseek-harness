@@ -17,7 +17,13 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
-import * as AgentSpine from '@deepseek-ai/dsh-agent-spine-demo'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { startMockLlmServer, type MockLlmBehavior, type MockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
@@ -58,17 +64,20 @@ async function loadComposition(sequence: readonly MockLlmBehavior[], token = TOK
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
-    '- id: agent-spine',
-    "  name: '@deepseek-ai/dsh-agent-spine-demo'",
-    '  config:',
-    '    persona: You are a task fixture.',
-    '    includeHarnessIdentity: false',
-    '    includeRuntimeContext: false',
-    '    workspaceContext: false',
-    '    skills:',
-    '      enabled: false',
-    '    toolBash: false',
-    '    toolJobs: false',
+    '- id: llm',
+    "  name: '@deepseek-ai/dsh-llm'",
+    '- id: session',
+    "  name: '@deepseek-ai/dsh-session'",
+    '- id: session-projection',
+    "  name: '@deepseek-ai/dsh-session-projection'",
+    '- id: system-prompt',
+    "  name: '@deepseek-ai/dsh-system-prompt'",
+    '- id: tools',
+    "  name: '@deepseek-ai/dsh-tools'",
+    '- id: agent',
+    "  name: '@deepseek-ai/dsh-agent'",
+    '- id: agent-loop',
+    "  name: '@deepseek-ai/dsh-agent-loop'",
     '- id: agent-default-model',
     "  name: '@deepseek-ai/dsh-agent-default-model'",
     '  config:',
@@ -95,7 +104,13 @@ async function loadComposition(sequence: readonly MockLlmBehavior[], token = TOK
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
-    ['@deepseek-ai/dsh-agent-spine-demo', AgentSpine],
+    ['@deepseek-ai/dsh-llm', LlmRuntime],
+    ['@deepseek-ai/dsh-session', SessionStore],
+    ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
+    ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
+    ['@deepseek-ai/dsh-tools', ToolRuntime],
+    ['@deepseek-ai/dsh-agent', AgentRegistry],
+    ['@deepseek-ai/dsh-agent-loop', AgentLoop],
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModel],
     ['@deepseek-ai/dsh-llm-deepseek', LlmDeepSeek],
     ['@deepseek-ai/dsh-task-service', TaskService],
