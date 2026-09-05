@@ -272,7 +272,7 @@ describe('edge joins', () => {
     await store.load()
     expect(store.store.getSnapshot()).toMatchObject({
       status: 'error',
-      error: 'settings are unavailable in this browser',
+      error: 'settings are unavailable on a non-loopback connection without --allow-remote-settings',
     })
   })
 

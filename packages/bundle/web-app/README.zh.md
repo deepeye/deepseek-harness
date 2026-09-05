@@ -38,7 +38,7 @@ dsh --profile web --no-open --port 8080
 
 ### 配置
 
-大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接，`--no-auth` 仅对本次调用关闭 connection 登录门（见[关闭登录门](#disabling-the-login-gate)）：
+大多数用户不需要设置这些；命令行 flag 会提供给下面六个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接，`--no-auth` 仅对本次调用关闭 connection 登录门（见[关闭登录门](#disabling-the-login-gate)），`--allow-remote-settings` 允许已认证的非 loopback 浏览器编辑 Models 设置页（见[从远端浏览器编辑设置](#editing-settings-from-a-remote-browser)）：
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -46,6 +46,8 @@ dsh --profile web --no-open --port 8080
 | `printUrl` | `true` | 启动时打印 `dsh web:` URL 行 |
 | `surfaceContext` | `true` | 给 agent（智能体）提供 GUI 定位上下文，并把 `DSH_WEB_URL` 暴露给其 shell 命令 |
 | `trustedHosts` | `[]` | 允许从网络访问 GUI 的额外主机 |
+| `auth` | `true` | 提供登录令牌/浏览器会话 cookie 门；`--no-auth` 将其置为 false |
+| `allowRemoteSettings` | `false` | 允许已认证的非 loopback 浏览器编辑 Models 设置页；`--allow-remote-settings` 将其置为 true（需 `--auth`） |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-app)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -61,6 +63,11 @@ dsh --profile web --no-open --port 8080
 ### 关闭登录门
 
 `--no-auth` 仅对本次调用关闭 connection 登录门：打印的根 URL 不带 `?token=...`，index 不经盘问即提供，`/api` 仅由 Host/Origin 信任栅栏拒绝（403）——绝不因 cookie 缺失而拒绝。它用于 loopback 开发会话，或由自带认证的 TLS 终止反向代理前置的部署。将 `--no-auth` 与 `--host 0.0.0.0` 组合会把 agent——shell、文件、每个 `/api` 方法——暴露给所有可达客户端且无任何认证；此时启动行在 stderr 打印相应警告，而非 token 窃听警告。两种形态下 Host/Origin 信任栅栏都仍然生效。
+
+<a id="editing-settings-from-a-remote-browser"></a>
+### 从远端浏览器编辑设置
+
+Models 设置页编辑的是 Host 侧拥有的文档，因此浏览器侧经 Host settings 提供方读写它。默认情况下该提供方只提供给 loopback 浏览器：非 loopback 浏览器（`--host 0.0.0.0` 部署中的公网 IP，或你用 `--trusted-host` 声明的 authority）能加载页面、对话、运行工具，但 Models 设置弹层会报告 *settings are unavailable on a non-loopback connection without --allow-remote-settings*，而非提供方目录。`--allow-remote-settings` 为本次调用移除该客户端侧门：已认证的远端浏览器——打印出的 `?token=` URL，或一次 token 交换后的 cookie——可读取并编辑 Models 页。该标志需要 `--auth`；传入 `--allow-remote-settings --no-auth` 会在启动时以 exit 1 拒绝，因为设置编辑是数据变更能力，未认证的 `/api` 访问不足以信任。该标志把一行 `globalThis.__DSH_REMOTE_SETTINGS__` 烤入启动 HTML，因此持久化在启动时即固定；loopback 默认不变，且 General 与 Deliverables 设置中的桌面打开动作仍仅限 loopback。
 
 ### 通过 SSH 运行
 
@@ -97,7 +104,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `web-app` 粘合插件：dist 解析、LAN 信任采样、提示词段落、bash 变量、URL 行、浏览器交接 |
-| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--no-open`、`--help` |
+| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--no-open`、`--no-auth`、`--allow-remote-settings`、`--help` |
 | [`cordis.patch.yml`](cordis.patch.yml) | Web patch：重述的基础值、Web 宿主行、浏览器名录、preset 之后的 agent 层 |
 | — | 不发布运行时不变式伴生入口；本包只持有静态 contribution 列表，每项 contribution 都由其 registry 释放。 |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | dist 解析、fallback 席位、提示词段落、就绪宣告 |

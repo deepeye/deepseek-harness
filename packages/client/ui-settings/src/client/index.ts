@@ -43,6 +43,14 @@ export type {
 export const inject = ['remote', 'remote.settings']
 
 /**
+ * Page global baked into the boot HTML by `--allow-remote-settings`; present
+ * only when a non-loopback authenticated browser may edit the settings document.
+ */
+interface ClientRemoteSettingsGlobal {
+  __DSH_REMOTE_SETTINGS__?: true
+}
+
+/**
  * Provide the settings-namespace scope service over one shared describe
  * mirror, and keep that mirror fresh on the two signals that can move the
  * settings document: a document commit and a (re)connect.
@@ -55,7 +63,10 @@ export function apply(ctx: Context): void {
   const schema = new SettingsSchemaService(ctx)
   // Resolved once here, where `remote` is declared in this plugin's own
   // `inject`; the binder hands the same answer to every scope it binds.
-  const persistence = ctx.remote.$host.isLoopback ? 'host' : 'memory'
+  // Non-loopback browsers edit host settings only when the operator opted in
+  // with `--allow-remote-settings` (auth-gated), baked into the boot HTML.
+  const remoteSettingsReadable = (globalThis as ClientRemoteSettingsGlobal).__DSH_REMOTE_SETTINGS__ === true
+  const persistence = (ctx.remote.$host.isLoopback || remoteSettingsReadable) ? 'host' : 'memory'
   const mirror = new SettingsDescribeMirror(ctx, persistence)
   ctx.effect(() => {
     const disposers = [

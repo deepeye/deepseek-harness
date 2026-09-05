@@ -55,6 +55,15 @@ export interface Config {
   surfaceContext: boolean
   /** Explicit `--trusted-host` authorities from this invocation. */
   trustedHosts: string[]
+  /** Whether the launch-token / browser-session login gate is on; `--no-auth` sets this false. */
+  auth: boolean
+  /**
+   * Whether a non-loopback authenticated browser may edit the Models settings
+   * page. `--allow-remote-settings` sets this true; the CLI rejects it without
+   * `--auth`, and this listener AND-guards a cordis.yml overlay that names
+   * the flag directly.
+   */
+  allowRemoteSettings: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -62,6 +71,8 @@ export const Config: z<Config> = z.object({
   printUrl: z.boolean().default(true),
   surfaceContext: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
+  auth: z.boolean().default(true),
+  allowRemoteSettings: z.boolean().default(false),
 })
 
 /** Bind-dependent Web values shared by the trust fence and URL display. */
@@ -239,6 +250,15 @@ export function apply(ctx: Context, config: Config): void {
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
+  // Bake the remote-settings opt-in into the boot HTML as a `globalThis` row.
+  // The CLI rejects `--allow-remote-settings` without `--auth`; this AND guards
+  // a cordis.yml overlay that names the flag directly. Pushed fresh on every
+  // index render, so it tracks `config` at emit time, not activation.
+  ctx.effect(() => ctx.on('webserver/index-inject', (table) => {
+    if (config.allowRemoteSettings && config.auth) {
+      table.push({ kind: 'global', name: '__DSH_REMOTE_SETTINGS__', value: true })
+    }
+  }), 'web-app: remote-settings boot global')
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
       addHarnessSourceSection(promptCtx, SOURCE_ROOT)

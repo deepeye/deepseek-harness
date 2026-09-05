@@ -31,6 +31,8 @@ export interface WebStartupValues {
   trustedHosts: string[]
   /** Whether the launch-token and browser-session cookie gate access; `--no-auth` sets this false. */
   auth: boolean
+  /** Whether a non-loopback authenticated browser may edit Models settings; `--allow-remote-settings` opts in (requires `--auth`). */
+  allowRemoteSettings: boolean
 }
 
 /** The web flag family, as commander parsed it. */
@@ -40,6 +42,7 @@ interface WebOptions {
   port?: string
   trustedHost?: string[]
   auth: boolean
+  allowRemoteSettings: boolean
 }
 
 /** Bind-host literal that exposes every network interface. */
@@ -98,12 +101,15 @@ function webCommand(): Command {
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--no-auth', 'serve without the process-token / browser-session login gate (the /api Host/Origin trust fence still applies)')
+    .option('--allow-remote-settings', 'permit editing the Models settings page from a non-loopback authenticated browser (requires --auth; exits 1 with --no-auth)', false)
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
   dsh --profile web --no-open                serve without opening a browser
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --no-auth                serve without the token login gate (loopback dev)
+  dsh --profile web --host 0.0.0.0 --trusted-host <authority> --allow-remote-settings
+                                              serve publicly and let an authenticated remote browser edit the Models settings
 `)
 }
 
@@ -123,12 +129,18 @@ export function apply(ctx: Context): void {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
     }
     if (host === ALL_INTERFACES_HOST) (options.auth ? warnPublicBind : warnPublicNoAuth)()
+    // Settings-edit is a data-mutation capability, so unlike --host 0.0.0.0 --no-auth
+    // (warn-only), opening it to a remote browser is rejected outright without auth.
+    if (options.allowRemoteSettings && !options.auth) {
+      program.error('error: --allow-remote-settings requires authentication; remove --no-auth to use it, or serve on loopback without the flag')
+    }
     ctx.provide(WEB_STARTUP_SERVICE, {
       openBrowser: options.open,
       ...host !== undefined && { host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],
       auth: options.auth,
+      allowRemoteSettings: options.allowRemoteSettings,
     } satisfies WebStartupValues)
   })
   parseCmdline(ctx, program)

@@ -60,6 +60,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
     '    auth: !!js ctx.webStartup.auth',
+    '    allowRemoteSettings: !!js ctx.webStartup.allowRemoteSettings',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -102,6 +103,7 @@ describe('web command-line provider', () => {
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
       auth: true,
+      allowRemoteSettings: false,
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -109,13 +111,14 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [], auth: true })
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [], auth: true, allowRemoteSettings: false })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
       auth: true,
+      allowRemoteSettings: false,
     })
   })
 
@@ -125,6 +128,7 @@ describe('web command-line provider', () => {
     expect(observed.out).toContain('--no-open')
     expect(observed.out).toContain('--trusted-host')
     expect(observed.out).toContain('--no-auth')
+    expect(observed.out).toContain('--allow-remote-settings')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([0])
@@ -140,13 +144,14 @@ describe('web command-line provider', () => {
 
   it('accepts the all-interfaces host and warns about plaintext exposure', async () => {
     const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
-    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [], auth: true })
+    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [], auth: true, allowRemoteSettings: false })
     expect(observed.readerConfig).toEqual({
       host: '0.0.0.0',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
       auth: true,
+      allowRemoteSettings: false,
     })
     expect(observed.out).toContain('--host 0.0.0.0 exposes the GUI to the network')
     expect(observed.out).toContain('TLS-terminating reverse proxy')
@@ -155,20 +160,21 @@ describe('web command-line provider', () => {
 
   it('disables the login gate on --no-auth and leaves the host fence standing', async () => {
     const { values, observed } = await bootProvider(['--no-auth'])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [], auth: false })
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [], auth: false, allowRemoteSettings: false })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
       auth: false,
+      allowRemoteSettings: false,
     })
     expect(observed.exits).toEqual([])
   })
 
   it('warns about unauthenticated network exposure when --no-auth meets --host 0.0.0.0', async () => {
     const { values, observed } = await bootProvider(['--no-auth', '--host', '0.0.0.0'])
-    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [], auth: false })
+    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [], auth: false, allowRemoteSettings: false })
     expect(observed.out).toContain('--host 0.0.0.0 with --no-auth exposes the agent to every reachable client with no authentication')
     expect(observed.out).toContain('TLS-terminating proxy that supplies its own authentication')
     // The token-sniffing warning is for the auth-on shape and must not also fire here.
@@ -179,6 +185,28 @@ describe('web command-line provider', () => {
   it('rejects a host outside the two supported literals before the consumer activates', async () => {
     const { values, observed } = await bootProvider(['--host', '192.168.1.5'])
     expect(observed.out).toContain('--host must be 127.0.0.1 or 0.0.0.0, got "192.168.1.5"')
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it('publishes allowRemoteSettings on --allow-remote-settings with auth left on', async () => {
+    const { values, observed } = await bootProvider(['--allow-remote-settings'])
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [], auth: true, allowRemoteSettings: true })
+    expect(observed.readerConfig).toEqual({
+      host: '127.0.0.1',
+      openBrowser: true,
+      port: 3080,
+      trustedHosts: [],
+      auth: true,
+      allowRemoteSettings: true,
+    })
+    expect(observed.exits).toEqual([])
+  })
+
+  it('rejects --allow-remote-settings with --no-auth before the consumer activates', async () => {
+    const { values, observed } = await bootProvider(['--allow-remote-settings', '--no-auth'])
+    expect(observed.out).toContain('--allow-remote-settings requires authentication')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([1])

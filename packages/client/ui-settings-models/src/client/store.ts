@@ -187,7 +187,7 @@ export class ModelsSettingsStore {
     if (!declared.ok) { this.failLoad(generation, declared.error.message); return }
     const mirrored = this.describeFace.getSnapshot()
     if (mirrored.view === undefined) {
-      this.failLoad(generation, mirrored.error ?? 'settings are unavailable in this browser')
+      this.failLoad(generation, mirrored.error ?? 'settings are unavailable on a non-loopback connection without --allow-remote-settings')
       return
     }
     const providers = joinProviderDirectory(registered.value, declared.value)

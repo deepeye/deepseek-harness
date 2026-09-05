@@ -3206,6 +3206,15 @@ export interface Config {
   surfaceContext: boolean
   /** Explicit `--trusted-host` authorities from this invocation. */
   trustedHosts: string[]
+  /** Whether the launch-token / browser-session login gate is on; `--no-auth` sets this false. */
+  auth: boolean
+  /**
+   * Whether a non-loopback authenticated browser may edit the Models settings
+   * page. `--allow-remote-settings` sets this true; the CLI rejects it without
+   * `--auth`, and this listener AND-guards a cordis.yml overlay that names
+   * the flag directly.
+   */
+  allowRemoteSettings: boolean
 }
 ```
 

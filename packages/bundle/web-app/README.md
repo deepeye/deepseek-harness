@@ -38,7 +38,7 @@ After startup you see a `dsh web:` line whose root URL carries a fresh process t
 
 ### Configuration
 
-Most users never set these; the command-line flags feed the four settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, `--no-open` turns the browser handoff off for that invocation, and `--no-auth` drops the connection login gate for that invocation (see [Disabling the login gate](#disabling-the-login-gate)):
+Most users never set these; the command-line flags feed the six settings below — `--host`, `--port`, and `--trusted-host` come from the invocation, `--no-open` turns the browser handoff off for that invocation, `--no-auth` drops the connection login gate for that invocation (see [Disabling the login gate](#disabling-the-login-gate)), and `--allow-remote-settings` permits an authenticated non-loopback browser to edit the Models settings page (see [Editing settings from a remote browser](#editing-settings-from-a-remote-browser)):
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -46,6 +46,8 @@ Most users never set these; the command-line flags feed the four settings below 
 | `printUrl` | `true` | Print the `dsh web:` URL line at startup |
 | `surfaceContext` | `true` | Give the agent GUI-orientation context and expose `DSH_WEB_URL` to its shell commands |
 | `trustedHosts` | `[]` | Extra hosts allowed to reach the GUI from the network |
+| `auth` | `true` | Serve the login-token / browser-session cookie gate; `--no-auth` sets this false |
+| `allowRemoteSettings` | `false` | Let a non-loopback authenticated browser edit the Models settings page; `--allow-remote-settings` sets this true (requires `--auth`) |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-app) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -61,6 +63,11 @@ By default the GUI accepts connections from this machine only. A deployment that
 ### Disabling the login gate
 
 `--no-auth` turns off the connection login gate for one invocation: the printed root URL carries no `?token=...`, the index is served without challenge, and `/api` is rejected only by the Host/Origin trust fence (403) — never for a missing cookie. It is intended for a loopback dev session, or for a deployment fronted by a TLS-terminating proxy that supplies its own authentication. Combining `--no-auth` with `--host 0.0.0.0` exposes the agent — shell, files, every `/api` method — to every reachable client with no authentication; the startup line prints a stderr warning to that effect instead of the token-sniffing warning. The Host/Origin trust fence still applies in both shapes.
+
+<a id="editing-settings-from-a-remote-browser"></a>
+### Editing settings from a remote browser
+
+The Models settings page edits a Host-owned document, so the browser side reads and writes it through the Host settings provider. By default that provider is served only to a loopback browser: a non-loopback browser (the public IP in a `--host 0.0.0.0` deployment, or an authority you named with `--trusted-host`) loads the page, chats, and runs tools, but the Models settings popup reports *settings are unavailable on a non-loopback connection without --allow-remote-settings* instead of the provider catalog. `--allow-remote-settings` lifts that client-side gate for the invocation: a remote, **authenticated** browser — the printed `?token=` URL, or the cookie after one token exchange — reads and edits the Models page. The flag requires `--auth`; passing `--allow-remote-settings --no-auth` exits 1 at startup, because settings-edit is a data-mutation capability and unauthenticated `/api` access is not enough to trust it. The flag bakes a `globalThis.__DSH_REMOTE_SETTINGS__` row into the boot HTML, so persistence is fixed at boot; the loopback default is unchanged, and the desktop-open actions in the General and Deliverables settings stay loopback-only.
 
 ### Running over SSH
 
@@ -97,7 +104,7 @@ The URL line and browser handoff are readiness signals: supervisors RPC as soon 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | The `web-app` glue plugin: dist resolution, LAN trust sampling, prompt sections, bash variable, URL line, browser handoff |
-| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--trusted-host`, `--no-open`, `--help` |
+| [`src/startup.ts`](src/startup.ts) | The `web-startup` provider: `--host`, `--port`, `--trusted-host`, `--no-open`, `--no-auth`, `--allow-remote-settings`, `--help` |
 | [`cordis.patch.yml`](cordis.patch.yml) | The web patch: restated base values, web host rows, browser roster, agent plane behind presets |
 | — | No runtime invariant companion is published; every contribution (frontend-static child plugin, prompt section, bashEnv registration) is registry-disposed with the fiber, and each owning registry's package carries that relation's invariant; the package holds no mutable state of its own to audit. |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | Dist resolution, fallback seat, prompt sections, readiness |

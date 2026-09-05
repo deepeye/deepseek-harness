@@ -1,17 +1,18 @@
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '../src/client/index.ts'
 import { SettingsSchemaService } from '../src/client/schema.ts'
 import { SettingsScopeBinder } from '../src/client/settings-scope.ts'
 import { apply as hostApply } from '../src/index.ts'
 
-function bench() {
+function bench(isLoopback = true) {
   const describeCall = vi.fn().mockResolvedValue({
     ok: true, value: { writable: true, hasDocument: true, namespaces: [] },
   })
   const ctx = new Context()
   const remote = new TestRemote(ctx, { settings: { describe: describeCall } })
+  remote.$host.isLoopback = isLoopback
   return { ctx, describeCall, remote, fiber: ctx.plugin({ inject: [...inject], apply }) }
 }
 
@@ -49,5 +50,27 @@ describe('settings domain base plugin', () => {
     ctx.emit('connection/reset')
     await Promise.resolve()
     expect(describeCall).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('remote settings opt-in global', () => {
+  const remoteSettingsGlobal = globalThis as { __DSH_REMOTE_SETTINGS__?: true }
+
+  afterEach(() => {
+    delete remoteSettingsGlobal.__DSH_REMOTE_SETTINGS__
+  })
+
+  it('keeps settings in memory for a non-loopback browser without the opt-in global', async () => {
+    const { describeCall, fiber } = bench(false)
+    await fiber.await()
+    await Promise.resolve()
+    expect(describeCall).not.toHaveBeenCalled()
+  })
+
+  it('reads host settings once for a non-loopback browser when the opt-in global is baked', async () => {
+    remoteSettingsGlobal.__DSH_REMOTE_SETTINGS__ = true
+    const { describeCall, fiber } = bench(false)
+    await fiber.await()
+    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
   })
 })
