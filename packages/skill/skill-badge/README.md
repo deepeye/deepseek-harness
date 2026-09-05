@@ -84,7 +84,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Skill subsystem reference](../../../docs/subsystems/skills.md) — the registry and provider contract this provider implements.
 - [skill package](../skill/README.md) — the registry the provider registers on, and the shared rendering of loaded skills.
 - [tool-skill package](../tool-skill/README.md) — how the badge skill reaches the session catalog and the model.
-- [Web preview product badge Agent Note](../../../.agents/notes/implemented/feature/2026-08-05-web-preview-product-badge.md) — why the provider ships disabled and the asset decisions.
+- [Skill system Agent Note](../../../.agents/notes/implemented/feature/2026-07-05-skill-system.md) — why the badge provider ships disabled by default.
 
 -----
 
