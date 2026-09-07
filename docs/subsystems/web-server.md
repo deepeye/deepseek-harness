@@ -68,12 +68,14 @@ Serve task submission and observation over the web server. Registrations are eff
 
 ```ts cordis-catalog
 /**
- * Whether one session id has a registered task. Read by the package
- * invariant companion to scope its agent-liveness check.
- * @param taskId - session id in wire form.
- * @returns whether a task record exists for the id.
+ * Whether one conversation has a registered task. Read by the package
+ * invariant companion to scope its agent-liveness check; the companion
+ * addresses a session id (the `turn/end` event carries `session.id`), not a
+ * task id, so this scans records by `sessionId`.
+ * @param sessionId - conversation id in wire form.
+ * @returns whether any task record targets the session.
  */
-hasTask(taskId: string): boolean
+hasSessionTask(sessionId: string): boolean
 
 /**
  * Task ids whose record no longer holds the agent registry's live agent.

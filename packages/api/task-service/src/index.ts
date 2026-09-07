@@ -1,23 +1,28 @@
 /**
  * @deepseek-ai/dsh-task-service — remote task HTTP surface over the harness
- * core. Each task is one Agent session driven by a single prompt: submission
- * creates the agent and queues the prompt, the session log is the durable
- * record, and the HTTP routes project progress (SSE), results, and
- * cancellation. The service owns no agent-loop behavior.
+ * core. Each task is one turn: submission resolves or creates the named
+ * Session, queues one prompt, and the HTTP routes project progress (SSE),
+ * results, and cancellation. A Session holds many tasks' turns across
+ * restarts via the durable log; each conversation owns a service-minted
+ * working directory under `workspaceRoot`. The service owns no agent-loop
+ * behavior.
  *
  * @module @deepseek-ai/dsh-task-service
  */
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, AgentSetup, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import { brandString } from '@deepseek-ai/dsh-brand'
+import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import Schema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
@@ -26,6 +31,24 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Remote task submission surface. */
     taskService: TaskService
+  }
+}
+
+/** Per-submission wire identity of one task; distinct from the Session it targets. */
+type TaskId = Branded<'TaskId'>
+
+/** A persisted Session's recorded working directory is not the service-minted one. */
+class TaskSessionCwdConflict extends Error {
+  constructor(
+    readonly sessionId: SessionId,
+    readonly expected: string,
+    readonly recorded: string | undefined,
+  ) {
+    super(
+      recorded === undefined
+        ? `session "${sessionId}" records no working directory`
+        : `session "${sessionId}" belongs to "${recorded}", not "${expected}"`,
+    )
   }
 }
 
@@ -50,6 +73,13 @@ export interface Config {
    * An empty value fails the load; there is no anonymous mode.
    */
   readonly token: string
+  /**
+   * Parent directory under which each conversation gets a service-minted
+   * `<workspaceRoot>/<sessionId>` working directory. The default is the process
+   * launch directory; a deployment isolating conversations on a dedicated
+   * volume sets this explicitly. @default process.cwd()
+   */
+  readonly workspaceRoot?: string
   /** Default completion webhook URL, used when a task submits no override. @optional */
   readonly webhookUrl?: string
   /** Per-attempt webhook delivery timeout in milliseconds. @default 10000 */
@@ -59,6 +89,7 @@ export interface Config {
 }
 
 interface ResolvedConfig extends Config {
+  readonly workspaceRoot: string
   readonly webhookTimeoutMs: number
   readonly webhookRetries: number
 }
@@ -71,7 +102,10 @@ interface WebhookDefaults {
 
 /** One submitted task: the owning agent plus its derived status. */
 interface TaskRecord {
-  readonly taskId: SessionId
+  /** Per-submission wire identity of this task; the `/tasks/{taskId}` handle. */
+  readonly taskId: TaskId
+  /** Conversation identity this task's turn belongs to; shared across turns. */
+  readonly sessionId: SessionId
   readonly agent: Agent
   /** First session seq this task may observe; earlier events predate the prompt. */
   readonly firstSeq: number
@@ -80,9 +114,17 @@ interface TaskRecord {
   result: TaskResult | undefined
 }
 
+/**
+ * Session id characters; excludes path separators, `..`, and shell
+ * metacharacters so a client-supplied id is safe to join into `workspaceRoot`
+ * as a directory name.
+ */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+
 /** Validated `POST /tasks` body. */
 const submitRequestSchema = z.object({
   task: z.string().min(1),
+  sessionId: z.string().min(1).max(128).regex(SESSION_ID_PATTERN).optional(),
   webhookUrl: z.string().min(1).optional(),
 })/** Request-body byte cap: a task prompt is text, not a file upload. */
 const MAX_TASK_BODY_BYTES = 1024 * 1024
@@ -97,19 +139,26 @@ const TASKS_PATH = '/tasks'
  * agents are retained for result queries.
  */
 export class TaskService extends Service {
-  static inject = ['agentDefaultModel', 'agents', 'webServer']
+  static inject = ['agentDefaultModel', 'agents', 'sessionQuery', 'webServer']
 
   /** Validated task-service configuration. */
   static Config: Schema<Config> = Schema.object({
     token: Schema.string().min(1),
+    workspaceRoot: Schema.string().min(1).default(process.cwd()),
     webhookUrl: Schema.string().min(1),
     webhookTimeoutMs: Schema.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(10_000),
     webhookRetries: Schema.number().step(1).min(0).max(10).default(2),
   })
 
   private readonly token: string
+  private readonly workspaceRoot: string
   private readonly webhook: WebhookDefaults
+  /** Every task by its wire id; finished records stay for result queries. */
   private readonly tasks = new Map<string, TaskRecord>()
+  /** The one running turn per Session; freed on `turn/end` for the next task. */
+  private readonly sessionTask = new Map<string, TaskRecord>()
+  /** In-flight create-or-resume per Session, deduplicating concurrent submits. */
+  private readonly resumes = new Map<string, Promise<Agent>>()
 
   /**
    * Register the task routes and the finish-detection event subscription.
@@ -120,6 +169,7 @@ export class TaskService extends Service {
     super(ctx, 'taskService')
     const resolved = config as ResolvedConfig
     this.token = resolved.token
+    this.workspaceRoot = resolved.workspaceRoot
     this.webhook = {
       url: resolved.webhookUrl,
       timeoutMs: resolved.webhookTimeoutMs,
@@ -135,10 +185,67 @@ export class TaskService extends Service {
     }, 'task-service: /tasks routes')
     ctx.effect(() => ctx.on('session/event', (session, event) => {
       if (event.type !== 'turn/end') return
-      const record = this.tasks.get(String(session.id))
+      const record = this.sessionTask.get(String(session.id))
       if (record === undefined || record.status === 'finished') return
       this.finish(record, event)
+      // Free the session for the next task; the live idle agent stays
+      // registered for adoption and result queries until disposal.
+      this.sessionTask.delete(String(session.id))
     }), 'task-service: task finish detection')
+  }
+
+  /** Service-minted working directory for one conversation. */
+  private sessionCwd(sessionId: SessionId): string {
+    return join(this.workspaceRoot, String(sessionId))
+  }
+
+  /** Resolve one Session's live Agent: adopt, cold-resume, or create once. */
+  private resolveSession(sessionId: SessionId): Promise<Agent> {
+    const existing = this.resumes.get(String(sessionId))
+    if (existing !== undefined) return existing
+    const task = this.createOrAdopt(sessionId)
+      .finally(() => { this.resumes.delete(String(sessionId)) })
+    this.resumes.set(String(sessionId), task)
+    return task
+  }
+
+  /**
+   * Adopt the live Agent for a Session, cold-resume it from persistence, or
+   * create a fresh ordinary Session. Mirrors `ApiSessionAgentController.
+   * createOrAdopt` without the preset, projection, Typert, and subagent-ownership
+   * concerns that package owns internally.
+   */
+  private async createOrAdopt(sessionId: SessionId): Promise<Agent> {
+    const cwd = this.sessionCwd(sessionId)
+    const selection = this.ctx.agentDefaultModel.currentSelection()
+    const agentOptions: AgentOptions = { provider: selection.provider, model: selection.model }
+    // The default-model setup idiom is deliberately identical to dsh-headless's
+    // driver; extracting it would widen the core surface for one shared stanza.
+    /* jscpd:ignore-start */
+    const setup: AgentSetup = (agentCtx) => {
+      const selected: ModelSelectionRef = { current: selection, assembled: undefined }
+      installModelSelection(agentCtx, selected)
+    }
+    /* jscpd:ignore-end */
+
+    const live = this.ctx.agents.get(sessionId)
+    if (live !== undefined) return live
+
+    try {
+      using observation: SessionObservation = await this.ctx.sessionQuery
+        .observeSession(sessionId, { projectionMode: 'none' })
+      if (observation.header.cwd !== cwd) {
+        throw new TaskSessionCwdConflict(sessionId, cwd, observation.header.cwd)
+      }
+      const { agent } = await this.ctx.agents.resume({ resumeSessionId: sessionId, agentOptions, setup })
+      return agent
+    } catch (error: unknown) {
+      if (!(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error
+    }
+
+    await mkdir(cwd, { recursive: true })
+    const { agent } = await this.ctx.agents.create({ sessionId, agentOptions, meta: { cwd }, setup })
+    return agent
   }
 
   /** Dispatch one authenticated request to its task operation. */
@@ -178,7 +285,7 @@ export class TaskService extends Service {
     }
   }
 
-  /** Read and validate one submission, create its agent, and queue the prompt. */
+  /** Read and validate one submission, resolve its session, and queue the prompt. */
   private async submit(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const parsed = submitRequestSchema.safeParse(await readJsonBody(req, MAX_TASK_BODY_BYTES))
     if (!parsed.success) throw new Error('invalid task submission')
@@ -188,47 +295,74 @@ export class TaskService extends Service {
       json(res, 400, { error: 'webhookUrl must be an http(s) URL' })
       return
     }
-    const taskId = brandString<SessionId>(`session-${randomUUID()}`)
-    const selection = this.ctx.agentDefaultModel.currentSelection()
-    // The default-model creation idiom is deliberately identical to
-    // dsh-headless's driver; extracting it would widen the core surface for
-    // one shared ten-line stanza.
-    /* jscpd:ignore-start */
-    const { agent } = await this.ctx.agents.create({
-      sessionId: taskId,
-      meta: { cwd: process.cwd() },
-      agentOptions: { provider: selection.provider, model: selection.model },
-      setup: (agentCtx) => {
-        const selected: ModelSelectionRef = { current: selection, assembled: undefined }
-        installModelSelection(agentCtx, selected)
-      },
-    })
-    /* jscpd:ignore-end */
+    const sessionId = body.sessionId !== undefined
+      ? brandString<SessionId>(body.sessionId)
+      : brandString<SessionId>(`session-${randomUUID()}`)
+    const taskId = brandString<TaskId>(`task-${randomUUID()}`)
+
+    // Fast-path rejection: a conversation whose turn is still running cannot
+    // accept a second — the per-task firstSeq/result derivation forbids
+    // interleaving, and adopting a running agent would block on its idle.
+    if (this.sessionTask.has(String(sessionId))) {
+      json(res, 409, { error: 'session/agent-busy' })
+      return
+    }
+
+    let agent: Agent
+    try {
+      agent = await this.resolveSession(sessionId)
+    } catch (error: unknown) {
+      if (error instanceof TaskSessionCwdConflict) {
+        json(res, 409, { error: 'session/cwd-conflict', sessionId: String(sessionId) })
+        return
+      }
+      if (error instanceof SessionQueryError) {
+        json(res, 500, { error: 'session/unavailable', detail: error.message })
+        return
+      }
+      throw error
+    }
     await agent.whenIdle()
+
+    // Atomic claim: re-check and reserve in one sync block so a concurrent
+    // submit for the same conversation (which shared the create-or-resume
+    // promise) cannot also queue a turn against this agent.
+    if (this.sessionTask.has(String(sessionId))) {
+      json(res, 409, { error: 'session/agent-busy' })
+      return
+    }
+    const firstSeq = agent.session.seq
     const record: TaskRecord = {
       taskId,
+      sessionId,
       agent,
-      firstSeq: agent.session.seq,
+      firstSeq,
       webhookUrl,
       status: 'running',
       result: undefined,
     }
     this.tasks.set(String(taskId), record)
+    this.sessionTask.set(String(sessionId), record)
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: body.task }],
       source: { kind: 'user' },
     }))
-    json(res, 202, { taskId: String(taskId), status: 'queued' })
+    json(res, 202, { taskId: String(taskId), sessionId: String(sessionId), status: 'queued' })
   }
 
   /** Answer one result query from the derived task status. */
   private status(record: TaskRecord, res: ServerResponse): void {
     if (record.status === 'running') {
-      json(res, 200, { taskId: String(record.taskId), status: 'running' })
+      json(res, 200, {
+        taskId: String(record.taskId),
+        sessionId: String(record.sessionId),
+        status: 'running',
+      })
       return
     }
     json(res, 200, {
       taskId: String(record.taskId),
+      sessionId: String(record.sessionId),
       status: 'finished',
       result: { text: record.result?.text ?? '', reason: record.result?.reason },
     })
@@ -241,7 +375,11 @@ export class TaskService extends Service {
       return
     }
     record.agent.cancel({ kind: 'user' })
-    json(res, 202, { taskId: String(record.taskId), status: 'cancelling' })
+    json(res, 202, {
+      taskId: String(record.taskId),
+      sessionId: String(record.sessionId),
+      status: 'cancelling',
+    })
   }
 
   /** Stream the task's session events as SSE until the terminating `turn/end`. */
@@ -255,7 +393,7 @@ export class TaskService extends Service {
     let resolvers = Promise.withResolvers<void>()
     const wake = (): void => { resolvers.resolve() }
     const dispose = this.ctx.on('session/event', (session, event) => {
-      if (session.id !== record.taskId) return
+      if (session.id !== record.sessionId) return
       queue.push(event)
       wake()
     })
@@ -309,6 +447,7 @@ export class TaskService extends Service {
     if (url === undefined) return
     const body = JSON.stringify({
       taskId: String(record.taskId),
+      sessionId: String(record.sessionId),
       status: 'finished',
       result: { text: record.result?.text ?? '', reason: record.result?.reason },
     })
@@ -331,13 +470,18 @@ export class TaskService extends Service {
   }
 
   /**
-   * Whether one session id has a registered task. Read by the package
-   * invariant companion to scope its agent-liveness check.
-   * @param taskId - session id in wire form.
-   * @returns whether a task record exists for the id.
+   * Whether one conversation has a registered task. Read by the package
+   * invariant companion to scope its agent-liveness check; the companion
+   * addresses a session id (the `turn/end` event carries `session.id`), not a
+   * task id, so this scans records by `sessionId`.
+   * @param sessionId - conversation id in wire form.
+   * @returns whether any task record targets the session.
    */
-  hasTask(taskId: string): boolean {
-    return this.tasks.has(taskId)
+  hasSessionTask(sessionId: string): boolean {
+    for (const record of this.tasks.values()) {
+      if (String(record.sessionId) === sessionId) return true
+    }
+    return false
   }
 
   /**

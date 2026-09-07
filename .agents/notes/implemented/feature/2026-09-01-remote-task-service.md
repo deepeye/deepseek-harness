@@ -32,3 +32,7 @@ Bearer auth is one required `token` config field validated at load (empty fails 
 ## Consequences
 
 New packages `packages/api/task-service` and `packages/bundle/service-app`; `PROFILE_TEMPLATES` gains `service`; apps/cli declares the bundle dependency so the launcher resolves it. `SessionEventMap`, the agent-loop, and the snapshot tree are untouched. REAL-composition coverage boots the real Loader composition against the mock LLM provider and asserts auth rejection, the submit/result loop, SSE frame order, webhook delivery, and cancellation.
+
+## Related
+
+The "taskId IS the branded SessionId" and "one task is one Agent session driven by a single prompt" decisions above were later split: the task-service now mints a per-submission `task-<uuid>` distinct from the conversation's `sessionId` and supports multi-turn continuation with per-conversation working-directory isolation. See [Task-service multi-turn conversations and per-conversation working-directory isolation](../architecture/2026-09-07-task-service-multi-turn-and-isolation.md).

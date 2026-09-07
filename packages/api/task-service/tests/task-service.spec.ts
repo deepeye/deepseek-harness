@@ -8,7 +8,7 @@
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -20,8 +20,11 @@ import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
+import * as SessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
@@ -46,9 +49,25 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
+/** Options for {@link loadComposition}. */
+interface CompositionOptions {
+  /** Bearer token; defaults to the shared test token. */
+  readonly token?: string
+  /** Compose `session-persistence-jsonl` + the checkpoint policy so sessions durably persist. */
+  readonly persistent?: boolean
+  /** Reuse an existing mkdtemp root (cold-resume context B shares context A's persistence). */
+  readonly reuseRoot?: string
+  /** Override the task-service `workspaceRoot` (cwd-conflict: A and B mint different session cwds). */
+  readonly workspaceRoot?: string
+}
+
 /** Boot one task-service composition against one mock provider script. */
-async function loadComposition(sequence: readonly MockLlmBehavior[], token = TOKEN): Promise<Context> {
-  root = await mkdtemp(join(tmpdir(), 'dsh-task-service-'))
+async function loadComposition(
+  sequence: readonly MockLlmBehavior[],
+  options: CompositionOptions = {},
+): Promise<Context> {
+  const { token = TOKEN, persistent = false, reuseRoot, workspaceRoot } = options
+  root = reuseRoot ?? await mkdtemp(join(tmpdir(), 'dsh-task-service-'))
   vi.stubEnv('DSH_TASK_SERVICE_TEST_KEY', 'mock-key')
   mock = await startMockLlmServer({
     apiKey: 'mock-key',
@@ -57,8 +76,8 @@ async function loadComposition(sequence: readonly MockLlmBehavior[], token = TOK
     successText: 'TASK SERVICE OK',
   })
 
-  const configPath = join(root, 'cordis.yml')
-  await writeFile(configPath, [
+  const workspaces = workspaceRoot ?? join(root, 'workspaces')
+  const lines: string[] = [
     '- id: webserver',
     "  name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
@@ -88,14 +107,32 @@ async function loadComposition(sequence: readonly MockLlmBehavior[], token = TOK
     '  config:',
     `    baseURL: ${JSON.stringify(mock.baseURL)}`,
     '    apiKeyEnv: DSH_TASK_SERVICE_TEST_KEY',
+  ]
+  if (persistent) {
+    lines.push(
+      '- id: session-persistence-jsonl',
+      "  name: '@deepseek-ai/dsh-session-persistence-jsonl'",
+      '  config:',
+      `    root: ${JSON.stringify(join(root, 'sessions'))}`,
+    )
+  }
+  lines.push(
+    '- id: session-query-sqlite',
+    "  name: '@deepseek-ai/dsh-session-query-sqlite'",
+    '  config:',
+    "    path: ':memory:'",
+    '    openAt: never',
     '- id: task-service',
     "  name: '@deepseek-ai/dsh-task-service'",
     '  config:',
     `    token: ${JSON.stringify(token)}`,
+    `    workspaceRoot: ${JSON.stringify(workspaces)}`,
     '    webhookTimeoutMs: 1000',
     '    webhookRetries: 1',
     '',
-  ].join('\n'))
+  )
+  const configPath = join(root, 'cordis.yml')
+  await writeFile(configPath, lines.join('\n'))
 
   const ctx = new Context()
   context = ctx
@@ -114,7 +151,9 @@ async function loadComposition(sequence: readonly MockLlmBehavior[], token = TOK
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModel],
     ['@deepseek-ai/dsh-llm-deepseek', LlmDeepSeek],
     ['@deepseek-ai/dsh-task-service', TaskService],
+    ['@deepseek-ai/dsh-session-query-sqlite', SessionQuerySqlite],
   ])
+  if (persistent) modules.set('@deepseek-ai/dsh-session-persistence-jsonl', SessionPersistenceJsonl)
   // Mirror the package manifests a deployed cordis.yml has beside its declared
   // dependencies; the custom importer bypasses Node resolution for the sources.
   await Promise.all([...modules.keys()].map(async (packageName) => {
@@ -138,6 +177,11 @@ async function loadComposition(sequence: readonly MockLlmBehavior[], token = TOK
     config: { path: pathToFileURL(configPath).href },
   })
   await ctx.loader.await()
+  // The checkpoint policy is a function plugin (named `name`/`inject`/`apply`,
+  // no class default export); the Loader's importer serves class services, so
+  // apply it directly once the loader composition has resolved its
+  // `llm`/`sessionPersistence`/`sessions`/`tools` injections.
+  if (persistent) await ctx.plugin(SessionCheckpointPolicy)
   return ctx
 }
 
@@ -216,12 +260,26 @@ describe('real Loader composition', () => {
     expect(() => TaskService.Config({ token: '' })).toThrow()
   })
 
+  it('rejects a submission without a task field', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition(['success'])
+    const response = await submit(ctx, JSON.stringify({ webhookUrl: 'https://example.com/hook' }))
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects a non-http webhookUrl', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition(['success'])
+    const response = await submit(ctx, JSON.stringify({ task: 'hi', webhookUrl: 'ftp://example.com/hook' }))
+    expect(response.status).toBe(400)
+    expect((await response.json() as { error: string }).error).toContain('webhookUrl')
+  })
+
   it('completes a submitted task and serves its result', { timeout: 60_000 }, async () => {
     const ctx = await loadComposition(['success'])
     const response = await submit(ctx, JSON.stringify({ task: 'Say the fixture phrase.' }))
     expect(response.status).toBe(202)
-    const { taskId } = await response.json() as { taskId: string }
-    expect(taskId).toMatch(/^session-/)
+    const { taskId, sessionId } = await response.json() as { taskId: string; sessionId: string }
+    expect(taskId).toMatch(/^task-/)
+    expect(sessionId).toMatch(/^session-/)
 
     await vi.waitFor(async () => {
       const status = await fetch(`${baseUrl(ctx)}/tasks/${taskId}`, { headers: AUTH })
@@ -281,5 +339,134 @@ describe('real Loader composition', () => {
     }, { timeout: 30_000 })
     const again = await fetch(`${baseUrl(ctx)}/tasks/${taskId}/cancel`, { method: 'POST', headers: AUTH })
     expect(again.status).toBe(409)
+  })
+
+  it('continues a multi-turn conversation within one Host context', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition(['success'])
+    const sid = 'multi-turn-session'
+    const r1 = await submit(ctx, JSON.stringify({ task: 'first turn marker', sessionId: sid }))
+    expect(r1.status).toBe(202)
+    const { taskId: t1, sessionId: s1 } = await r1.json() as { taskId: string; sessionId: string }
+    expect(s1).toBe(sid)
+    await vi.waitFor(async () => {
+      const s = await fetch(`${baseUrl(ctx)}/tasks/${t1}`, { headers: AUTH })
+      expect((await s.json() as { status: string }).status).toBe('finished')
+    }, { timeout: 30_000 })
+    // Second turn on the same session: the live idle agent is adopted, and the
+    // new turn follows the first in the same conversation log.
+    const r2 = await submit(ctx, JSON.stringify({ task: 'second turn marker', sessionId: sid }))
+    expect(r2.status).toBe(202)
+    const { taskId: t2 } = await r2.json() as { taskId: string; sessionId: string }
+    expect(t2).not.toBe(t1)
+    await vi.waitFor(async () => {
+      const s = await fetch(`${baseUrl(ctx)}/tasks/${t2}`, { headers: AUTH })
+      expect((await s.json() as { status: string }).status).toBe('finished')
+    }, { timeout: 30_000 })
+    // Live-agent adoption proof: the second LLM request carries the first turn.
+    const wire = JSON.stringify(mock!.requests.at(-1)?.body ?? {})
+    expect(wire).toContain('first turn marker')
+    expect(wire).toContain('second turn marker')
+  })
+
+  it('isolates each conversation under its own working directory', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition(['success'])
+    const r1 = await submit(ctx, JSON.stringify({ task: 'a', sessionId: 'iso-a' }))
+    const r2 = await submit(ctx, JSON.stringify({ task: 'b', sessionId: 'iso-b' }))
+    expect(r1.status).toBe(202)
+    expect(r2.status).toBe(202)
+    const cwdA = join(root!, 'workspaces', 'iso-a')
+    const cwdB = join(root!, 'workspaces', 'iso-b')
+    // Each conversation's working directory is materialized on session
+    // resolution, before the 202 acknowledges the task.
+    await expect(stat(cwdA)).resolves.toBeDefined()
+    await expect(stat(cwdB)).resolves.toBeDefined()
+    expect(cwdA).not.toBe(cwdB)
+  })
+
+  it('rejects a second task against a session whose turn is still running', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition(['stall'])
+    const sid = 'busy-session'
+    const r1 = await submit(ctx, JSON.stringify({ task: 'never finishes', sessionId: sid }))
+    expect(r1.status).toBe(202)
+    const { taskId: t1 } = await r1.json() as { taskId: string; sessionId: string }
+    // The stall never resolves, so the turn stays running; a second task
+    // targeting the same conversation is rejected before session resolution.
+    const r2 = await submit(ctx, JSON.stringify({ task: 'second', sessionId: sid }))
+    expect(r2.status).toBe(409)
+    expect((await r2.json() as { error: string }).error).toBe('session/agent-busy')
+    // Cancel the stalled turn so the context can tear down cleanly.
+    const cancel = await fetch(`${baseUrl(ctx)}/tasks/${t1}/cancel`, { method: 'POST', headers: AUTH })
+    expect(cancel.status).toBe(202)
+    await vi.waitFor(async () => {
+      const s = await fetch(`${baseUrl(ctx)}/tasks/${t1}`, { headers: AUTH })
+      expect((await s.json() as { status: string }).status).toBe('finished')
+    }, { timeout: 30_000 })
+  })
+
+  it('cold-resumes a persisted conversation across two Host contexts', { timeout: 60_000 }, async () => {
+    const ctxA = await loadComposition(['success'], { persistent: true })
+    const sid = 'cold-resume-session'
+    const r1 = await submit(ctxA, JSON.stringify({ task: 'first turn marker', sessionId: sid }))
+    expect(r1.status).toBe(202)
+    const { taskId: t1 } = await r1.json() as { taskId: string; sessionId: string }
+    await vi.waitFor(async () => {
+      const s = await fetch(`${baseUrl(ctxA)}/tasks/${t1}`, { headers: AUTH })
+      expect((await s.json() as { status: string }).status).toBe('finished')
+    }, { timeout: 30_000 })
+    // Flush the complete turn to durability before tearing down context A.
+    const liveAgent = ctxA.agents.get(SessionId(sid))
+    if (liveAgent !== undefined) await ctxA.sessions.flush(liveAgent.session)
+    const sharedRoot = root!
+    await ctxA.fiber.dispose()
+    context = undefined
+    await mock!.close()
+    mock = undefined
+
+    // Context B shares A's persistence root; the service cold-resumes the
+    // session from the durable log before queuing the second turn.
+    const ctxB = await loadComposition(['success'], { persistent: true, reuseRoot: sharedRoot })
+    const r2 = await submit(ctxB, JSON.stringify({ task: 'second turn marker', sessionId: sid }))
+    expect(r2.status).toBe(202)
+    const { taskId: t2 } = await r2.json() as { taskId: string; sessionId: string }
+    await vi.waitFor(async () => {
+      const s = await fetch(`${baseUrl(ctxB)}/tasks/${t2}`, { headers: AUTH })
+      expect((await s.json() as { status: string }).status).toBe('finished')
+    }, { timeout: 30_000 })
+    // Cold-resume proof: B's LLM request carries the first turn's history.
+    const wire = JSON.stringify(mock!.requests.at(-1)?.body ?? {})
+    expect(wire).toContain('first turn marker')
+    expect(wire).toContain('second turn marker')
+  })
+
+  it('rejects a persisted session whose recorded cwd differs from the service-minted one', { timeout: 60_000 }, async () => {
+    const ctxA = await loadComposition(['success'], { persistent: true })
+    const sid = 'cwd-conflict-session'
+    const r1 = await submit(ctxA, JSON.stringify({ task: 'seed the conversation', sessionId: sid }))
+    expect(r1.status).toBe(202)
+    const { taskId: t1 } = await r1.json() as { taskId: string; sessionId: string }
+    await vi.waitFor(async () => {
+      const s = await fetch(`${baseUrl(ctxA)}/tasks/${t1}`, { headers: AUTH })
+      expect((await s.json() as { status: string }).status).toBe('finished')
+    }, { timeout: 30_000 })
+    const liveAgent = ctxA.agents.get(SessionId(sid))
+    if (liveAgent !== undefined) await ctxA.sessions.flush(liveAgent.session)
+    const sharedRoot = root!
+    await ctxA.fiber.dispose()
+    context = undefined
+    await mock!.close()
+    mock = undefined
+
+    // Context B shares A's persistence root but mints a different session cwd
+    // (different workspaceRoot), so the persisted header's cwd no longer matches.
+    const ctxB = await loadComposition(['success'], {
+      persistent: true,
+      reuseRoot: sharedRoot,
+      workspaceRoot: join(sharedRoot, 'workspaces-b'),
+    })
+    const r2 = await submit(ctxB, JSON.stringify({ task: 'resume here', sessionId: sid }))
+    expect(r2.status).toBe(409)
+    const body = await r2.json() as { error: string; sessionId: string }
+    expect(body.error).toBe('session/cwd-conflict')
+    expect(body.sessionId).toBe(sid)
   })
 })

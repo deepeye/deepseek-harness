@@ -21,3 +21,17 @@ _Avoid_: SmartFox (for the provider)
 **Fox mark**:
 The single-color geometric fox-head SVG used as the standalone logo (sidebar, empty-state hero, favicon). Rides currentColor like other brand art.
 _Avoid_: Fish logo, whale
+
+### Conversations
+
+**Session**:
+The durable identity and append-only event log of one conversation; the unit a client reuses to continue a conversation across turns and Host restarts.
+_Avoid_: conversation, thread, chat, dialogue (as the identity name)
+
+**Turn**:
+One user prompt and the agent's complete response up to the next turn boundary; the unit a Session accumulates.
+_Avoid_: round, exchange, message
+
+**Task** (task-service surface):
+One submission to the task-service HTTP surface, serving exactly one Turn within a Session. Distinct from the Session, which may hold many Tasks' turns.
+_Avoid_: job, request, conversation

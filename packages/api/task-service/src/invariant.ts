@@ -23,12 +23,12 @@ export const inject = ['invariants']
  */
 const install: InvariantInstaller = (ctx, fail) => {
   const service = ctx.get('taskService') as
-    | { hasTask(taskId: string): boolean; staleTaskIds(): readonly string[] }
+    | { hasSessionTask(sessionId: string): boolean; staleTaskIds(): readonly string[] }
     | undefined
   if (service === undefined) return // no task-service row in this composition
   ctx.on('session/event', (session, event) => {
     if (event.type !== 'turn/end') return
-    if (!service.hasTask(String(session.id))) return
+    if (!service.hasSessionTask(String(session.id))) return
     const stale = service.staleTaskIds()
     if (stale.length > 0) fail(`task(s) ${stale.map(id => JSON.stringify(id)).join(', ')} hold a disposed or replaced agent`)
   }, { global: true })

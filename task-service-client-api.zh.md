@@ -1,6 +1,6 @@
 # dsh 任务服务 客户端接口文档
 
-版本:v1(2026-09-02)
+版本:v1.1(2026-09-07)
 适用对象:本地 web / desktop 客户端开发
 服务形态:`dsh --profile service` 启动的长驻 HTTP 服务
 
@@ -8,7 +8,7 @@
 
 ## 1. 概述
 
-客户端通过本服务向 deepseek-harness 提交 agent 任务,实时观察执行进度,并取回最终结果。一次"任务"对应一个 agent 会话,由一条任务提示词驱动,执行完毕后结果可通过 **查询**、**SSE 流**、**完成回调 webhook** 三种方式获取。
+客户端通过本服务向 deepseek-harness 提交 agent 任务,实时观察执行进度,并取回最终结果。**一次任务(Task)是一轮提交**——由一条任务提示词驱动、对应一个 `taskId`;**一段会话(Session)是可跨轮延续的对话**——由提交时可选的 `sessionId` 命名。同一 `sessionId` 的后续提交续接既有对话(服务端幂等地创建或恢复),每个会话还拥有独立的工作目录 `<workspaceRoot>/<sessionId>`。执行完毕后结果可通过 **查询**、**SSE 流**、**完成回调 webhook** 三种方式获取。
 
 ### 1.1 Base URL
 
@@ -38,9 +38,10 @@ Authorization: Bearer {DSH_SERVICE_TOKEN}
 |---|---|
 | 请求体 | `application/json`,上限 1 MiB |
 | 响应体 | `application/json; charset=utf-8`(SSE 除外) |
-| taskId | 形如 `session-<uuid>` 的字符串,提交后返回,后续所有接口凭它寻址 |
-| 错误响应 | `{"error": "<说明>"}` |
-| 幂等性 | 提交接口不幂等(每次调用都创建新任务) |
+| taskId | 形如 `task-<uuid>` 的字符串,每次提交生成,后续所有接口凭它寻址 |
+| sessionId | 形如 `session-<uuid>`,或客户端在提交时自带的 `sessionId`(仅 `[A-Za-z0-9_-]`、≤128 字符);标识一段可续接的对话 |
+| 错误响应 | `{"error": "<说明>"}`,个别错误附带额外字段(如 `session/cwd-conflict` 带 `sessionId`) |
+| 幂等性 | 每次提交都创建新任务(新 `taskId`、新一轮);携带同一 `sessionId` 则续接既有会话而非新建,但仍产生独立的 task |
 
 ### 1.4 服务启动(部署方)
 
@@ -100,7 +101,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:18923/tasks
 | 3 | `GET /tasks/{taskId}/events` | SSE 实时事件流 |
 | 4 | `POST /tasks/{taskId}/cancel` | 取消任务 |
 
-> 注意:没有任务列表、删除、历史接口(GET `/tasks` 返回 404)。服务重启后内存中的任务记录清空,重启前提交的任务无法再查询。
+> 注意:没有任务列表、删除、历史接口(GET `/tasks` 返回 404)。服务重启后内存中的任务记录清空,重启前 task 的结果无法再按 `taskId` 查询;但会话日志是持久的——重启后用同一 `sessionId` 再次提交可冷恢复并续接对话(前提是部署的 `workspaceRoot` 与此前一致,否则返回 `409 session/cwd-conflict`)。
 
 ---
 
@@ -117,30 +118,44 @@ POST /tasks
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `task` | string | 是 | 任务提示词,非空。agent 会以此为目标执行 |
+| `sessionId` | string | 否 | 对话标识,用于续接多轮;仅 `[A-Za-z0-9_-]`、≤128 字符。省略时服务端生成 `session-<uuid>`。续接同一 `sessionId` 即延续既有对话 |
 | `webhookUrl` | string | 否 | 本任务的完成回调地址,必须是 `http(s)://` 绝对 URL;未提供时使用服务端默认值 |
 
 **示例**
+
+首轮提交(自带 `sessionId` 以便后续续接):
 
 ```sh
 curl -X POST http://127.0.0.1:18923/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "content-type: application/json" \
-  -d '{"task": "阅读仓库 README 并总结要点", "webhookUrl": "https://client.example.com/hook"}'
+  -d '{"task": "阅读仓库 README 并总结要点", "sessionId": "conv-001", "webhookUrl": "https://client.example.com/hook"}'
+```
+
+续接同一对话(第二轮):
+
+```sh
+curl -X POST http://127.0.0.1:18923/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"task": "基于上面的总结,挑出三条最重要的", "sessionId": "conv-001"}'
 ```
 
 **响应 `202`**
 
 ```json
-{"taskId": "session-3f9c2a7e8b1d4c2f", "status": "queued"}
+{"taskId": "task-3f9c2a7e8b1d4c2f", "sessionId": "conv-001", "status": "queued"}
 ```
 
-提交成功即返回;任务在服务端异步执行。客户端应保存 `taskId`。
+每次提交返回独立的 `taskId`(对应这一轮),`sessionId` 标识所属对话。客户端应保存两者:用 `taskId` 查询/SSE/取消这一轮,用 `sessionId` 续接下一轮。省略 `sessionId` 时服务端生成 `session-<uuid>` 并在响应中返回。
 
 **错误**
 
 | 状态码 | 场景 |
 |---|---|
-| `400` | 请求体不是合法 JSON、`task` 为空、`webhookUrl` 不是 http(s) URL、体积超限 |
+| `400` | 请求体不是合法 JSON、`task` 为空、`sessionId` 含非法字符或超长、`webhookUrl` 不是 http(s) URL、体积超限 |
+| `409` | 该 `sessionId` 的上一轮仍在运行(`session/agent-busy`);或持久会话记录的工作目录与当前部署不一致(`session/cwd-conflict`,响应体附带 `sessionId`) |
+| `500` | 会话冷读失败——日志损坏或不可用(`session/unavailable`) |
 
 ---
 
@@ -153,14 +168,15 @@ GET /tasks/{taskId}
 **响应 `200`(进行中)**
 
 ```json
-{"taskId": "session-3f9c2a7e8b1d4c2f", "status": "running"}
+{"taskId": "task-3f9c2a7e8b1d4c2f", "sessionId": "conv-001", "status": "running"}
 ```
 
 **响应 `200`(已结束)**
 
 ```json
 {
-  "taskId": "session-3f9c2a7e8b1d4c2f",
+  "taskId": "task-3f9c2a7e8b1d4c2f",
+  "sessionId": "conv-001",
   "status": "finished",
   "result": {
     "text": "README 的要点如下:……",
@@ -271,7 +287,7 @@ POST /tasks/{taskId}/cancel
 **响应 `202`**
 
 ```json
-{"taskId": "session-3f9c2a7e8b1d4c2f", "status": "cancelling"}
+{"taskId": "task-3f9c2a7e8b1d4c2f", "sessionId": "conv-001", "status": "cancelling"}
 ```
 
 取消是异步的:服务端中止当前 turn,随后任务以 `reason.kind === "aborted"` 正常收尾(查询接口与 webhook 均会体现)。SSE 流上会照常出现 `turn/end` 终止帧。
@@ -293,7 +309,7 @@ POST /tasks/{taskId}/cancel
 POST {webhookUrl}
 Content-Type: application/json
 
-{"taskId": "session-…", "status": "finished", "result": {"text": "…", "reason": {"kind": "completed"}}}
+{"taskId": "task-…", "sessionId": "conv-001", "status": "finished", "result": {"text": "…", "reason": {"kind": "completed"}}}
 ```
 
 - 客户端回调服务返回任意 `2xx` 即视为投递成功
@@ -325,18 +341,28 @@ POST /tasks ──► 拿到 taskId ──► 每隔 1–2s GET /tasks/{id} 直�
 POST /tasks(带 webhookUrl)──► 客户端等待回调 ──► 收到 POST 即得结果(失败可兜底查询)
 ```
 
-三种方式可组合使用。
+**方式 D:多轮对话(续接同一 sessionId)**
+
+```
+POST /tasks(带 sessionId="conv-001")──► 拿到 taskId1 ──► … 读到 turn/end,该轮结束
+POST /tasks(再带 sessionId="conv-001")──► 拿到 taskId2 ──► 续接同一对话,基于上轮上下文
+```
+
+同一 `sessionId` 的提交复用同一段会话日志:首轮在 Host 内是冷前缀,续轮在存活 agent 上直接追加。对同一会话并发提交第二轮会返回 `409 session/agent-busy`,需等上一轮 `turn/end` 后再提交。
+
+四种方式可组合使用。
 
 ---
 
 ## 5. 已知限制(客户端需感知)
 
 1. **无任务列表/删除接口**——客户端需自行保存 taskId。
-2. **服务重启丢任务记录**——重启前提交的任务查询返回 404;建议客户端对 404 做"任务不存在,请重新提交"的兜底提示。
+2. **服务重启丢 task 记录、会话可冷恢复**——重启前 task 的结果按 `taskId` 查询返回 404;但会话日志持久落盘,重启后用同一 `sessionId` 再次提交可续接对话(部署的 `workspaceRoot` 须与此前一致,否则 `409 session/cwd-conflict`)。建议客户端对 404 做"该轮不存在,可重新提交"的兜底提示。
 3. **无并发上限**——客户端应自行控制同时在途的任务数。
 4. **SSE 帧含完整会话事件**(含工具调用参数)——面向终端用户展示前请做筛选,不要原样透出。
 5. **无 TLS**——服务为 plain HTTP,请在反向代理上终结 TLS。
 6. **单用户鉴权**——token 泄露即等同完全控制,请妥善保管。
+7. **隔离范围为工作目录**——每个会话有独立 `<workspaceRoot>/<sessionId>` 工作目录,但调用方/租户鉴权与按对话的 OS 进程沙箱不在范围内;多租户须在自有网关后做二次鉴权与隔离。
 
 ---
 
@@ -350,4 +376,4 @@ POST /tasks(带 webhookUrl)──► 客户端等待回调 ──► 收到 POST
 | `401` | token 缺失或错误 |
 | `404` | 路径不存在,或 taskId 不存在 |
 | `405` | 该路径不支持此 HTTP 方法 |
-| `409` | 任务已结束(仅 cancel) |
+| `409` | 提交时:该会话上一轮仍在运行(`session/agent-busy`)或工作目录冲突(`session/cwd-conflict`);取消时:任务已结束 |

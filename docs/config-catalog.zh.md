@@ -2531,7 +2531,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-task-service`
 
-需要：`agentDefaultModel` · `agents` · `webServer`
+需要：`agentDefaultModel` · `agents` · `sessionQuery` · `webServer`
 
 ```ts config-catalog
 /** Task-service configuration. */
@@ -2541,6 +2541,13 @@ export interface Config {
    * An empty value fails the load; there is no anonymous mode.
    */
   readonly token: string
+  /**
+   * Parent directory under which each conversation gets a service-minted
+   * `<workspaceRoot>/<sessionId>` working directory. The default is the process
+   * launch directory; a deployment isolating conversations on a dedicated
+   * volume sets this explicitly. @default process.cwd()
+   */
+  readonly workspaceRoot?: string
   /** Default completion webhook URL, used when a task submits no override. @optional */
   readonly webhookUrl?: string
   /** Per-attempt webhook delivery timeout in milliseconds. @default 10000 */
@@ -2550,7 +2557,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/api/task-service/src/index.ts:47`](../packages/api/task-service/src/index.ts)
+来源：[`packages/api/task-service/src/index.ts:70`](../packages/api/task-service/src/index.ts)
 
 <a id="deepseek-aidsh-terminal-bash"></a>
 

@@ -32,3 +32,7 @@ Bearer 鉴权是一个必填的 `token` 配置字段，加载时校验（空值�
 ## 影响
 
 新增 `packages/api/task-service` 与 `packages/bundle/service-app`；`PROFILE_TEMPLATES` 增加 `service`；apps/cli 声明该 bundle 依赖以便启动器解析。`SessionEventMap`、agent-loop 与 snapshot 树均未改动。REAL-composition 覆盖经真实 Loader 组合加 mock LLM provider 启动，断言鉴权拒绝、提交/结果闭环、SSE 帧顺序、webhook 投递与取消。
+
+## Related
+
+上文 "taskId IS the branded SessionId" 与 "one task is one Agent session driven by a single prompt" 决策其后被拆分：task-service 现铸按提交计的 `task-<uuid>`，与对话的 `sessionId` 区分，并支持带按对话工作目录隔离的多轮续接。见 [Task-service multi-turn conversations and per-conversation working-directory isolation](../architecture/2026-09-07-task-service-multi-turn-and-isolation.zh.md)。

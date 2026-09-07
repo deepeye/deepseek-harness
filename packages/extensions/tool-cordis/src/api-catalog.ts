@@ -2326,10 +2326,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Serve task submission and observation over the web server. Registrations are effects of this service\'s fiber: disposing it removes the routes and event subscriptions. The in-memory registry does not survive a restart; finished agents are retained for result queries.',
     methods: [
       {
-        signature: 'hasTask(taskId: string): boolean',
-        description: 'Whether one session id has a registered task. Read by the package invariant companion to scope its agent-liveness check.',
-        parameters: [{ name: 'taskId', description: 'session id in wire form.' }],
-        returns: 'whether a task record exists for the id.',
+        signature: 'hasSessionTask(sessionId: string): boolean',
+        description: 'Whether one conversation has a registered task. Read by the package invariant companion to scope its agent-liveness check; the companion addresses a session id (the `turn/end` event carries `session.id`), not a task id, so this scans records by `sessionId`.',
+        parameters: [{ name: 'sessionId', description: 'conversation id in wire form.' }],
+        returns: 'whether any task record targets the session.',
       },
       {
         signature: 'staleTaskIds(): readonly string[]',
