@@ -7,8 +7,8 @@ import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH, RpcId, apply, inject, type ClientRequest, type HostConnectionHandle } from '../src/index.ts'
+import type { IndexInjection, WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import { API_PATH, RpcId, apply, inject, type ClientRequest, type ConnectionConfig, type HostConnectionHandle } from '../src/index.ts'
 import { DEFAULT_MAX_REQUEST_BODY_BYTES } from '../src/http-bridge.ts'
 import { provideBrowserCredentials } from './browser-credentials.ts'
 
@@ -81,7 +81,8 @@ function fakeResponse(): {
   return { response, state }
 }
 
-async function mounted(config?: { trustedHosts?: string[]; auth?: boolean }): Promise<{
+async function mounted(config?: ConnectionConfig): Promise<{
+  ctx: Context
   routes: WebRoute[]
   upgrades: WebUpgradeRoute[]
   connection: HostConnectionHandle
@@ -95,6 +96,7 @@ async function mounted(config?: { trustedHosts?: string[]; auth?: boolean }): Pr
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
   return {
+    ctx,
     routes,
     upgrades,
     connection: ctx.get('connection') as HostConnectionHandle,
@@ -116,6 +118,44 @@ function browserCookie(connection: HostConnectionHandle, authority: string): str
 }
 
 describe('connection node half', () => {
+  it('provides the carrier-neutral service without a Web server', async () => {
+    const ctx = new Context()
+    provideBrowserCredentials(ctx)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(ctx.get('connection')).toBeInstanceOf(Object)
+    await fiber.dispose()
+  })
+
+  it('injects validated browser recovery timing and withdraws it on disposal', async () => {
+    const { ctx, dispose } = await mounted({ recovery: { generationReadyTimeoutMs: 25_000 } })
+    try {
+      const rows: IndexInjection[] = []
+      ctx.emit('webserver/index-inject', rows)
+      expect(rows).toEqual([{
+        kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: {
+          backoffBaseMs: 500, backoffFactor: 2, backoffMaxMs: 10_000,
+          generationReadyWarnMs: 3_000, generationReadyTimeoutMs: 25_000,
+        },
+      }])
+      await dispose()
+      const after: IndexInjection[] = []
+      ctx.emit('webserver/index-inject', after)
+      expect(after).toEqual([])
+    } finally {
+      await dispose()
+    }
+  })
+
+  it.each([
+    { recovery: { backoffBaseMs: 0 }, error: /backoffBaseMs/ },
+    { recovery: { backoffFactor: NaN }, error: /backoffFactor.*finite/ },
+  ])('rejects invalid recovery timing before acquiring Host resources: $recovery', async ({ recovery, error }) => {
+    const ctx = new Context()
+    await expect(apply(ctx, { recovery })).rejects.toThrow(error)
+    expect(ctx.get('connection')).toBeUndefined()
+  })
+
   it('reserves enough default carrier capacity for the 200 MiB image batch', () => {
     expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBe(300 * 1024 * 1024)
     expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBeGreaterThan(Math.ceil(200 * 1024 * 1024 * 4 / 3) + 1024 * 1024)
@@ -235,33 +275,6 @@ describe('connection node half', () => {
       host: 'harness.example',
       cookie: browserCookie(connection, 'harness.example'),
     }))).toBeUndefined()
-    await dispose()
-  })
-
-  it('drops the login gate but keeps the trust fence when auth is disabled', async () => {
-    const { routes, connection, dispose } = await mounted({ trustedHosts: ['harness.example'], auth: false })
-
-    // The /api trust fence still rejects an untrusted Host.
-    const forbidden = fakeResponse()
-    await routes[0]!.handler(fakeRequest({ host: 'other.example' }), forbidden.response)
-    expect(forbidden.state).toMatchObject({ status: 403, body: 'forbidden' })
-
-    // A loopback Host reaches the bridge with no cookie: no 401.
-    const served = fakeResponse()
-    await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }), served.response)
-    expect(served.state.status).toBe(404)
-
-    // requestRejection: untrusted Host → 403; trusted/loopback → undefined (no 401).
-    expect(connection.requestRejection(fakeRequest({ host: 'other.example' }))).toBe(403)
-    expect(connection.requestRejection(fakeRequest({ host: '127.0.0.1:3080' }))).toBeUndefined()
-    expect(connection.requestRejection(fakeRequest({ host: 'harness.example' }))).toBeUndefined()
-
-    // The index is served without challenge; the printed URL carries no token.
-    const index = fakeResponse()
-    expect(connection.authorizeIndex(fakeRequest({ host: '127.0.0.1:3080' }, '/'), index.response)).toBe(true)
-    expect(index.state).toEqual({})
-    expect(connection.authenticatedUrl('http://127.0.0.1:3080')).toBe('http://127.0.0.1:3080/')
-
     await dispose()
   })
 

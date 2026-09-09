@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-运行 `dsh --profile web`，界面会在你的默认浏览器中打开，即可与 agent（智能体）交互式聊天。你会获得会话视图、模型与设置管理以及会话历史，背后与其他表层相同的模型访问、工具与安全默认值。该命令会打印带 token 的启动 URL；浏览器用该 token 换取签名会话 cookie，再重定向到干净的根 URL。你可以从命令行更改端口、绑定所有网络接口、关闭浏览器交接并允许额外主机。需要浏览器中的交互式工作时选择它；`dsh-headless` 是一次性的命令行兄弟表层。
+运行 `dsh --profile web`，打开提供聊天、模型与设置管理以及会话历史的交互式浏览器 GUI。它使用与其他 dsh 表层相同的模型访问、工具与安全默认值。启动时会打印经过认证的 URL，通常还会在默认浏览器中打开；SSH 会话和 `--no-open` 会保留该 URL，供你手动打开。你可以更改端口并允许额外主机，但不能绑定所有网络接口。需要在浏览器中交互式工作时选择本包；一次性的命令行任务应使用 `dsh-headless`。
 
 ## 目录
 
@@ -38,7 +38,7 @@ dsh --profile web --no-open --port 8080
 
 ### 配置
 
-大多数用户不需要设置这些；命令行 flag 会提供给下面六个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接，`--no-auth` 仅对本次调用关闭 connection 登录门（见[关闭登录门](#disabling-the-login-gate)），`--allow-remote-settings` 允许已认证的非 loopback 浏览器编辑 Models 设置页（见[从远端浏览器编辑设置](#editing-settings-from-a-remote-browser)）：
+大多数用户不需要设置这些；命令行 flag 会提供给下面四个设置——`--host`、`--port` 与 `--trusted-host` 来自本次调用，`--no-open` 仅对本次调用关闭浏览器交接：
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
@@ -46,28 +46,12 @@ dsh --profile web --no-open --port 8080
 | `printUrl` | `true` | 启动时打印 `dsh web:` URL 行 |
 | `surfaceContext` | `true` | 给 agent（智能体）提供 GUI 定位上下文，并把 `DSH_WEB_URL` 暴露给其 shell 命令 |
 | `trustedHosts` | `[]` | 允许从网络访问 GUI 的额外主机 |
-| `auth` | `true` | 提供登录令牌/浏览器会话 cookie 门；`--no-auth` 将其置为 false |
-| `allowRemoteSettings` | `false` | 允许已认证的非 loopback 浏览器编辑 Models 设置页；`--allow-remote-settings` 将其置为 true（需 `--auth`） |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-app)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
 ### LAN 访问与可信主机
 
-默认情况下 GUI 只接受本机的连接。绑定所有网络接口的部署（`--host 0.0.0.0`）也会允许 LAN 内的浏览器访问，此时打印的 URL 会附带一个 LAN 地址；`--trusted-host` 在两种情况下都能添加额外主机。Host 与 Origin 检查控制可达性，token 交换则认证每个 Host API 方法与 WebSocket stream。LAN 地址只在启动时采样一次，因此之后的网络变化不会被感知——重启 GUI 以重新公告。
-
-### 公网暴露
-
-`--host 0.0.0.0` 接受来自任意网卡的连接，启动时会警告：process token 与会话 cookie 经明文 HTTP 传输、可被窃听——公网部署请在 TLS 反向代理之后暴露。公网域名或地址也不在采样出的 LAN 信任列表里，需显式声明：`dsh --profile web --host 0.0.0.0 --trusted-host gui.example.com`。云主机的公网 IP 常以 NAT 映射到私网网卡地址，因此也不在采样之列——用 `--trusted-host <公网 IP>` 显式声明。`--host` 参数仅接受 `127.0.0.1` 与 `0.0.0.0`。
-
-<a id="disabling-the-login-gate"></a>
-### 关闭登录门
-
-`--no-auth` 仅对本次调用关闭 connection 登录门：打印的根 URL 不带 `?token=...`，index 不经盘问即提供，`/api` 仅由 Host/Origin 信任栅栏拒绝（403）——绝不因 cookie 缺失而拒绝。它用于 loopback 开发会话，或由自带认证的 TLS 终止反向代理前置的部署。将 `--no-auth` 与 `--host 0.0.0.0` 组合会把 agent——shell、文件、每个 `/api` 方法——暴露给所有可达客户端且无任何认证；此时启动行在 stderr 打印相应警告，而非 token 窃听警告。两种形态下 Host/Origin 信任栅栏都仍然生效。
-
-<a id="editing-settings-from-a-remote-browser"></a>
-### 从远端浏览器编辑设置
-
-Models 设置页编辑的是 Host 侧拥有的文档，因此浏览器侧经 Host settings 提供方读写它。默认情况下该提供方只提供给 loopback 浏览器：非 loopback 浏览器（`--host 0.0.0.0` 部署中的公网 IP，或你用 `--trusted-host` 声明的 authority）能加载页面、对话、运行工具，但 Models 设置弹层会报告 *settings are unavailable on a non-loopback connection without --allow-remote-settings*，而非提供方目录。`--allow-remote-settings` 为本次调用移除该客户端侧门：已认证的远端浏览器——打印出的 `?token=` URL，或一次 token 交换后的 cookie——可读取并编辑 Models 页。该标志需要 `--auth`；传入 `--allow-remote-settings --no-auth` 会在启动时以 exit 1 拒绝，因为设置编辑是数据变更能力，未认证的 `/api` 访问不足以信任。该标志把一行 `globalThis.__DSH_REMOTE_SETTINGS__` 烤入启动 HTML，因此持久化在启动时即固定；loopback 默认不变，且 General 与 Deliverables 设置中的桌面打开动作仍仅限 loopback。
+默认情况下 GUI 只接受本机的连接。绑定所有网络接口的部署也会允许 LAN 内的浏览器访问，此时打印的 URL 会附带一个 LAN 地址；`--trusted-host` 在两种情况下都能添加额外主机。Host 与 Origin 检查控制可达性，token 交换则认证每个 Host API 方法与 WebSocket stream。LAN 地址只在启动时采样一次，因此之后的网络变化不会被感知——重启 GUI 以重新公告。
 
 ### 通过 SSH 运行
 
@@ -89,7 +73,7 @@ Models 设置页编辑的是 Host 侧拥有的文档，因此浏览器侧经 Hos
 
 ### patch 语义
 
-patch 会替换目标行的整个 `config`，因此每个 Web 行都重述自己拥有的每个键：基础行上的 persona、`DSH_TOOLS_MODE` PTC mode 开关与 `session-query-sqlite` 值，随后 `insert` 添加 Web 宿主行、传输层与浏览器名录。base 以进程级挂载的按 agent 工具行在这里被禁用，由 preset 名录接管；每项宿主层与 preset 层归属决策的理由以行内注释写在 patch 里。
+patch 会替换目标行的整个 `config`，因此每个 Web 行都重述自己拥有的每个键：基础行上的 persona 前缀与后缀模板、`DSH_TOOLS_MODE` PTC mode 开关与 `session-query-sqlite` 值，随后 `insert` 添加 Web 宿主行、传输层与浏览器名录。base 以进程级挂载的按 agent 工具行在这里被禁用，由 preset 名录接管；每项宿主层与 preset 层归属决策的理由以行内注释写在 patch 里。
 
 ### 就绪宣告
 
@@ -104,7 +88,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `web-app` 粘合插件：dist 解析、LAN 信任采样、提示词段落、bash 变量、URL 行、浏览器交接 |
-| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--no-open`、`--no-auth`、`--allow-remote-settings`、`--help` |
+| [`src/startup.ts`](src/startup.ts) | `web-startup` 提供方：`--host`、`--port`、`--trusted-host`、`--no-open`、`--help` |
 | [`cordis.patch.yml`](cordis.patch.yml) | Web patch：重述的基础值、Web 宿主行、浏览器名录、preset 之后的 agent 层 |
 | — | 不发布运行时不变式伴生入口；本包只持有静态 contribution 列表，每项 contribution 都由其 registry 释放。 |
 | [`tests/web-app.spec.ts`](tests/web-app.spec.ts) | dist 解析、fallback 席位、提示词段落、就绪宣告 |
@@ -140,7 +124,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 
 #### 模型看到什么
 
-当 `surfaceContext` 为 true 时，`harness:source` 段落标明磁盘上的 Harness 实现，但不会声称它就是工作目录；全局段落 `app:web-surface`（first-party 顺序 −800）则向模型说明 GUI：规范的本地 URL、「this page」指代什么、更新约定（重载接收端始终开启；无刷新重载还需要 `pnpm run dev:web` watcher），以及不要启动替代服务器的指令。`DSH_WEB_URL` 还会连同描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，这两个段落和该变量都不会注册。
+当 `surfaceContext` 为 true 时，`harness:source` 段落标明磁盘上的 Harness 实现，但不会声称它就是工作目录；全局段落 `app:web-surface`（first-party 顺序 10100，位于可复用指令之后）则向模型说明 GUI：规范的本地 URL、「this page」指代什么、更新约定（重载接收端始终开启；无刷新重载还需要 `pnpm run dev:web` watcher），以及不要启动替代服务器的指令。`DSH_WEB_URL` 还会连同描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，这两个段落和该变量都不会注册。
 
 #### Token 影响
 
@@ -148,7 +132,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 
 #### KV Cache 影响
 
-该提示词段落位于系统提示词靠前位置，且在进程整个生命周期内稳定（端口是启动期事实），因此不会使跨轮次缓存失效。
+源码与 Web 段落位于第一方可复用指令之后。工具与配置一致时，不同 checkout 路径或本地端口不会改变前置前缀；不保证提供方复用缓存。
 
 ## 已知限制与延期工作
 
@@ -162,7 +146,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 - **只能观察到交接的启动**——GUI 只报告浏览器被请求打开，而不是它确实打开了；之后的浏览器退出永远不会上报，打印的 URL 是你的手动回退路径。
 - **SSH 会话保留 URL 但跳过浏览器交接**——打印的 URL 指向远端宿主机 loopback 端点；SSH 客户端或编辑器必须暴露并打开本地转发地址。
 - **`BROWSER` 覆盖只能来自环境**——被发现的 `.env` 不能设置 `BROWSER`；只有继承值能为自动交接选择可执行文件。
-- **服务端口无 TLS**——webserver 提供 plain HTTP；端口离开主机的部署在反向代理上终结 TLS，`--host 0.0.0.0` 的启动警告会重申这一点。
+- **不支持绑定所有网络接口**——出于安全考虑，`--host 0.0.0.0` 会在启动时被拒绝；请使用默认 loopback 主机。
 
 <a id="dev-note"></a>
 ### 开发备注

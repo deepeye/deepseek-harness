@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config, internals } from '../src/index.ts'
 
 vi.mock('node:child_process', async importOriginal => ({
@@ -109,9 +109,6 @@ interface BashContribution {
   resolve: () => Record<string, string>
 }
 
-/** Schema-default auth state shared by every glue test: login gate on, no remote-settings opt-in. */
-const DEFAULT_AUTH: Pick<Config, 'auth' | 'allowRemoteSettings'> = { auth: true, allowRemoteSettings: false }
-
 describe('web-app runtime glue', () => {
   it('mounts dist serving, prompt section, bash variables, and publishes the URL with the LAN snapshot', async () => {
     stageDist()
@@ -136,8 +133,8 @@ describe('web-app runtime glue', () => {
     const log = vi.spyOn(console, 'log').mockImplementation((message) => { lifecycle.push(String(message)) })
     const openBrowser = vi.fn(async (url: string) => { lifecycle.push(`open:${url}`) })
     internals.openBrowser = openBrowser
-    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'], ...DEFAULT_AUTH }))
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
@@ -174,8 +171,8 @@ describe('web-app runtime glue', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const openBrowser = vi.fn(async () => {})
     internals.openBrowser = openBrowser
-    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: true, trustedHosts: [], ...DEFAULT_AUTH }))
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: true, trustedHosts: [] }))
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     expect(openBrowser).not.toHaveBeenCalled()
@@ -197,8 +194,8 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false, trustedHosts: [], ...DEFAULT_AUTH }))
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false, trustedHosts: [] }))
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(entry => entry.name === 'app:web-surface')).toBe(false)
@@ -213,7 +210,7 @@ describe('web-app runtime glue', () => {
     ctx.provide('webServer', fakeHttpServer().server)
     provideConnection(ctx)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: true, trustedHosts: [], ...DEFAULT_AUTH }))
+    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567/?token=test-token')
     await ctx.fiber.dispose()
@@ -226,7 +223,7 @@ describe('web-app runtime glue', () => {
     const first = ctx.plugin((connectionCtx: Context) => { provideConnection(connectionCtx) })
     await first
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: true, trustedHosts: [], ...DEFAULT_AUTH }))
+    apply(ctx, new Config({ openBrowser: false, printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledTimes(1)
 
@@ -249,7 +246,7 @@ describe('web-app runtime glue', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const openBrowser = vi.fn(async () => {})
     internals.openBrowser = openBrowser
-    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: false, trustedHosts: [], ...DEFAULT_AUTH }))
+    apply(ctx, new Config({ openBrowser: true, printUrl: true, surfaceContext: false, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567/?token=test-token')
     expect(openBrowser).not.toHaveBeenCalled()
@@ -269,7 +266,7 @@ describe('web-app runtime glue', () => {
     const settlement = new Promise<void>((resolve) => { release = resolve })
     provideLoader(settled, () => settlement)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(settled, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [], ...DEFAULT_AUTH }))
+    apply(settled, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     expect(openBrowser).not.toHaveBeenCalled()
@@ -287,7 +284,7 @@ describe('web-app runtime glue', () => {
     failed.provide('webServer', fakeHttpServer().server)
     provideConnection(failed)
     provideLoader(failed, async () => { throw new Error('boot failed') })
-    apply(failed, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [], ...DEFAULT_AUTH }))
+    apply(failed, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     expect(openBrowser).not.toHaveBeenCalled()
@@ -306,7 +303,7 @@ describe('web-app runtime glue', () => {
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
     provideLoader(torn, () => tornSettlement)
-    apply(torn, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [], ...DEFAULT_AUTH }))
+    apply(torn, new Config({ openBrowser: true, printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     await child.dispose() // the webServer service goes away
     releaseTorn!()
@@ -325,8 +322,8 @@ describe('web-app runtime glue', () => {
     Object.defineProperty(server, 'port', { get: () => undefined })
     ctx.provide('webServer', server)
     provideConnection(ctx)
-    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: true, trustedHosts: [], ...DEFAULT_AUTH }))
-    await ctx.plugin(SystemPrompt, { persona: '' })
+    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: true, trustedHosts: [] }))
+    await ctx.plugin(SystemPrompt, { personaPrefix: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow('webServer service missing')
     await ctx.fiber.dispose()
@@ -351,7 +348,7 @@ describe('web-app runtime glue', () => {
     internals.openBrowser = vi.fn(async () => { throw failure })
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => {})
-    apply(ctx, new Config({ openBrowser: true, printUrl: false, surfaceContext: false, trustedHosts: [], ...DEFAULT_AUTH }))
+    apply(ctx, new Config({ openBrowser: true, printUrl: false, surfaceContext: false, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: opening the default browser; pass --no-open to disable')
     expect(diagnostic).toHaveBeenCalledWith(
@@ -417,53 +414,5 @@ describe('web-app runtime glue', () => {
     errored.emit('error', new Error('spawn failed'))
     await errorAssertion
     expect(errored.listenerCount('close')).toBe(0)
-  })
-})
-
-describe('remote-settings boot global', () => {
-  /** Minimal glue: a dist fixture and a fake webServer so `apply` mounts without readiness side effects. */
-  function applyWith({ auth = true, allowRemoteSettings = false }: { auth?: boolean; allowRemoteSettings?: boolean } = {}): Context {
-    stageDist()
-    const ctx = new Context()
-    ctx.provide('webServer', fakeHttpServer().server)
-    provideConnection(ctx)
-    apply(ctx, new Config({ openBrowser: false, printUrl: false, surfaceContext: false, trustedHosts: [], auth, allowRemoteSettings }))
-    return ctx
-  }
-
-  /** Collect the index-inject table the way the webserver does on every render. */
-  function collect(ctx: Context): IndexInjection[] {
-    const table: IndexInjection[] = []
-    ctx.emit('webserver/index-inject', table)
-    return table
-  }
-
-  it('bakes the __DSH_REMOTE_SETTINGS__ global when the opt-in and auth are both on', async () => {
-    const ctx = applyWith({ allowRemoteSettings: true, auth: true })
-    await new Promise(resolve => setTimeout(resolve, 0)) // settle the effect registering the listener
-    expect(collect(ctx)).toContainEqual({ kind: 'global', name: '__DSH_REMOTE_SETTINGS__', value: true })
-    await ctx.fiber.dispose()
-  })
-
-  it('pushes no remote-settings row by default (boot HTML byte-identical)', async () => {
-    const ctx = applyWith({})
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(collect(ctx)).toEqual([])
-    await ctx.fiber.dispose()
-  })
-
-  it('pushes no remote-settings row when auth is off even with the opt-in (AND guard)', async () => {
-    const ctx = applyWith({ allowRemoteSettings: true, auth: false })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(collect(ctx)).toEqual([])
-    await ctx.fiber.dispose()
-  })
-
-  it('retires the injection listener on fiber disposal (HMR safety)', async () => {
-    const ctx = applyWith({ allowRemoteSettings: true, auth: true })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await ctx.fiber.dispose()
-    // A fresh emit after disposal pushes nothing — the listener is gone, not duplicated on reload.
-    expect(collect(ctx)).toEqual([])
   })
 })

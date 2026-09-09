@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-08-12-documentation-site-navigation-and-chrome.md: f211d17b6c7e12d093f96ca709ccbb53ec412464
-2026-08-12-documentation-site-navigation-and-chrome.zh.md: 81294bcf7f0cf7280684a6d0f47f2991165f8ae6
+2026-08-12-documentation-site-navigation-and-chrome.md: f33f017d54bcbb3583f37be27dcd6c69952bc66a
+2026-08-12-documentation-site-navigation-and-chrome.zh.md: 7f3ff5c829c561167d8e2475cd1c2adf050975be
