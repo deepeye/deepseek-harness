@@ -1733,11 +1733,22 @@ export interface Config {
    * for example the container's own Pod address from `hostname -i`. A loopback
    * literal (any address in 127/8, `::1`, or a mapped form of either) keeps the
    * server on this machine; any other literal serves the network that address
-   * belongs to, over plain HTTP unless `tls` is set. The unspecified address —
-   * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
-   * load: it would expose the port on every interface at once.
+   * belongs to, over plain HTTP unless `tls` is set. By default the unspecified
+   * address — IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is
+   * rejected: it would expose the port on every interface at once. Setting
+   * {@link allowWildcardHost} admits it.
    */
   host: string
+  /**
+   * Whether to admit the unspecified (wildcard) listen address — IPv4 any,
+   * IPv6 any, and the IPv4-mapped forms of IPv4 any — despite the exposure it
+   * implies: it serves the port on every interface of this machine at once,
+   * over plain HTTP unless `tls` is set. The default denies it. Admit only
+   * where ahead of it lies a trusted network or a proxy enforcing
+   * authentication; otherwise prefer one concrete bind address.
+   * @default false
+   */
+  allowWildcardHost?: boolean
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**

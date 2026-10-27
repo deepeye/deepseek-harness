@@ -100,11 +100,22 @@ export interface Config {
    * for example the container's own Pod address from `hostname -i`. A loopback
    * literal (any address in 127/8, `::1`, or a mapped form of either) keeps the
    * server on this machine; any other literal serves the network that address
-   * belongs to, over plain HTTP unless `tls` is set. The unspecified address —
-   * IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is rejected at
-   * load: it would expose the port on every interface at once.
+   * belongs to, over plain HTTP unless `tls` is set. By default the unspecified
+   * address — IPv4 any, IPv6 any, and the IPv4-mapped forms of IPv4 any — is
+   * rejected: it would expose the port on every interface at once. Setting
+   * {@link allowWildcardHost} admits it.
    */
   host: string
+  /**
+   * Whether to admit the unspecified (wildcard) listen address — IPv4 any,
+   * IPv6 any, and the IPv4-mapped forms of IPv4 any — despite the exposure it
+   * implies: it serves the port on every interface of this machine at once,
+   * over plain HTTP unless `tls` is set. The default denies it. Admit only
+   * where ahead of it lies a trusted network or a proxy enforcing
+   * authentication; otherwise prefer one concrete bind address.
+   * @default false
+   */
+  allowWildcardHost?: boolean
   /** Listen port; zero requests an OS-assigned port. */
   port: number
   /**
@@ -359,11 +370,9 @@ export class WebServer extends Service {
     host: z.transform(z.string(), (value) => {
       const parsed = parseIpLiteral(value)
       if (parsed === undefined) throw notLiteralError(value)
-      if (isWildcardAddress(parsed)) {
-        throw new Error(`webserver: host ${JSON.stringify(value)} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address of a local interface instead`)
-      }
       return value
     }).required(),
+    allowWildcardHost: z.boolean().default(false),
     port: z.natural().max(65535).required(),
     // An omitted object must not become `{}` and fail the required pair fields.
     tls: z.object({
@@ -526,6 +535,12 @@ export class WebServer extends Service {
 
   /** Listen; resolves once the socket is bound (rejection = FAILED fiber). */
   async [Service.init](): Promise<void> {
+    // The wildcard bind is a sibling-dependent decision the schemastery schema
+    // cannot hold (one field's acceptance needs another's value), so it fails
+    // here at load: default-deny, admittance only through allowWildcardHost.
+    if (isWildcardHost(this.config.host) && !this.config.allowWildcardHost) {
+      throw new Error(`webserver: host ${JSON.stringify(this.config.host)} is an unspecified (wildcard) address, which is not supported: binding every interface would expose remote code execution to the network; bind one concrete IPv4 or IPv6 address of a local interface instead, or enable allowWildcardHost to admit it explicitly`)
+    }
     const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
       /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server
       requests; the field is only optional on the client-side IncomingMessage type */

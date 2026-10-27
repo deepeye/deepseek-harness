@@ -185,7 +185,11 @@ Serve the DeepSeek Harness browser UI.
 Options:
   --host <host>                  bind address: one concrete IPv4 or IPv6 literal
                                  of a local interface; wildcard addresses are
-                                 rejected
+                                 rejected unless --allow-wildcard-host is set
+  --allow-wildcard-host          serve --host's unspecified (wildcard) address,
+                                 exposing the port on every interface of this
+                                 machine; prefer one concrete bind address or an
+                                 authenticated proxy
   --no-open                      do not open the Web UI in the default browser
   --port <port>                  listen port; pass 0 to let the OS pick a free
                                  one
@@ -205,6 +209,8 @@ Examples:
   dsh --profile web --no-open                serve without opening a browser
   dsh --profile web --port 8080              serve on another port
   dsh --profile web --host 10.0.0.7          bind one local interface address
+  dsh --profile web --host 0.0.0.0 --allow-wildcard-host
+                                             bind every interface (exposed to the network; add --public-url to advertise a real root)
   dsh --profile web --public-url https://app.example/ui/ --trusted-host app.example
                                              advertise a prefix-stripping HTTPS proxy entry and admit its authority
   dsh --profile web --tls-cert ./server-chain.pem --tls-key ./server-key.pem

@@ -23,7 +23,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import HttpServer, {
-  bindUrlHost, isLoopbackHost, normalizeBindAddress, renderIndexInjections, type TlsConfig, type WebResource, type WebRoute,
+  bindUrlHost, isLoopbackHost, isWildcardHost, normalizeBindAddress, renderIndexInjections, type TlsConfig, type WebResource, type WebRoute,
 } from '../src/index.ts'
 import { materializeTlsFixture, type TlsFixture } from './tls-fixture.ts'
 
@@ -92,6 +92,7 @@ async function loadComposition(
   gzip = false,
   host = '127.0.0.1',
   tls?: Partial<TlsConfig> | null,
+  allowWildcardHost?: boolean,
 ): Promise<Context> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-webserver-loader-'))
   const configPath = join(root, 'cordis.yml')
@@ -100,6 +101,9 @@ async function loadComposition(
     '  config:',
     `    host: '${host}'`,
     `    port: ${String(port)}`,
+    ...(allowWildcardHost === undefined
+      ? []
+      : [`    allowWildcardHost: ${String(allowWildcardHost)}`]),
     ...(tls === undefined
       ? []
       : tls === null
@@ -253,18 +257,24 @@ describe('real Loader composition', () => {
     }
   })
 
-  it('rejects every wildcard spelling by address value, not by text', () => {
+  it('classifies every wildcard spelling by address value; the schema admits it, the default load denies it', async () => {
     // Every spelling node:net accepts that parses to the unspecified address:
     // IPv4 any, IPv6 any in long and short forms, IPv4-compatible, and the
     // IPv4-mapped forms of IPv4 any, with or without a zone.
-    for (const host of [
+    const wildcards = [
       '0.0.0.0', '::', '::0', '0000::', '0::', '0:0:0:0:0:0:0:0', '::0.0.0.0', '::0.0.0.0%lo', '::%lo',
       '::ffff:0.0.0.0', '::ffff:0:0', '::ffff:0000:0000', '0:0:0:0:0:ffff:0:0',
       '0:0:0:0:0:ffff:0.0.0.0', '::ffff:0.0.0.0%eth0',
-    ]) {
-      expect(() => HttpServer.Config({ host, port: 0 })).toThrow(
-        /is an unspecified \(wildcard\) address, which is not supported/,
-      )
+    ]
+    for (const host of wildcards) {
+      // The wildcard is an IP literal, so the config schema accepts it...
+      expect(isWildcardHost(host)).toBe(true)
+      expect(HttpServer.Config({ host, port: 0 }).allowWildcardHost).toBe(false)
+      // ...and the default load (no opt-in) denies it as a FAILED fiber.
+      const denied = await loadComposition(0, false, host)
+      const fiber = webserverFiber(denied)
+      expect(fiber?.state).toBe(FiberState.FAILED)
+      await expect(fiber?.await()).rejects.toThrow(/is an unspecified \(wildcard\) address/)
     }
     for (const host of ['localhost', 'example.com', '*', '[::]', '[fd00::1]', '10.1.2.3/8']) {
       expect(() => HttpServer.Config({ host, port: 0 }))
@@ -272,13 +282,12 @@ describe('real Loader composition', () => {
     }
   })
 
-  it('denies the IPv4-mapped wildcard through the real plugin load, not only the predicate', async () => {
+  it('admits a wildcard bind through the real plugin load only with the allowWildcardHost opt-in', async () => {
     // The Loader is nontransactional: a rejected config leaves a FAILED fiber
-    // whose await carries the schema error rather than rejecting loader.await().
-    const denied = await loadComposition(0, false, '::ffff:0.0.0.0')
-    const fiber = webserverFiber(denied)
-    expect(fiber?.state).toBe(FiberState.FAILED)
-    await expect(fiber?.await()).rejects.toThrow(/is an unspecified \(wildcard\) address/)
+    // whose await carries the init error rather than rejecting loader.await().
+    const admitted = await loadComposition(0, false, '0.0.0.0', undefined, true)
+    expect(webserverFiber(admitted)?.state).toBe(FiberState.ACTIVE)
+    expect(boundPort(admitted.webServer.port)).toBeGreaterThan(0)
   })
 
   it('classifies loopback bind addresses from the parsed value, including mapped and zone forms', () => {
@@ -334,6 +343,7 @@ describe('real Loader composition', () => {
   it('applies gzip only to eligible socket-backed HTTP responses', { timeout: 60_000 }, async () => {
     expect(HttpServer.Config({ host: '127.0.0.1', port: 0 })).toEqual({
       host: '127.0.0.1',
+      allowWildcardHost: false,
       port: 0,
       compression: 'none',
       compressionLevel: 1,
@@ -886,6 +896,7 @@ describe('real Loader composition', () => {
     const tls = { certFile: fixture.certFile, keyFile: fixture.keyFile }
     expect(HttpServer.Config({ host: '127.0.0.1', port: 0, tls })).toEqual({
       host: '127.0.0.1',
+      allowWildcardHost: false,
       port: 0,
       tls,
       compression: 'none',
