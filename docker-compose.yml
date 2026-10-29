@@ -1,0 +1,43 @@
+services:
+  dsh:
+    build:
+      context: .
+      # Uncomment to build for an x86 server from an Apple Silicon machine.
+      # Emulated builds are much slower; building on the target host is fastest.
+      # platform: linux/amd64
+    image: dsh:local
+    # Reap the child processes the agent spawns.
+    init: true
+    restart: unless-stopped
+    # The image's node user is uid/gid 1000. On a Linux host with another uid,
+    # and for local testing on macOS (where the host user is usually 501),
+    # change this to the host's uid:gid and chown both directories.
+    user: "1000:1000"
+    ports:
+      - "3080:3080"
+    env_file: .env
+    environment:
+      DSH_HOME: /data
+    # Create both directories and let the container user own them before the
+    # first start: `mkdir -p data workspace` (Docker would otherwise create
+    # them owned by root and the server could not write its profile).
+    volumes:
+      - ./data:/data
+      - ./workspace:/workspace
+    # LAN_HOST is the host's LAN address (IP or hostname). It is advertised as
+    # the public URL and admitted by the browser-trust fence; without it every
+    # API call from another machine is refused with 403. It carries no DSH_
+    # prefix because the CLI refuses those names in a .env it discovers.
+    command:
+      - dsh
+      - web
+      - --host
+      - "0.0.0.0"
+      - --allow-wildcard-host
+      - --no-open
+      - --port
+      - "3080"
+      - --public-url
+      - "http://${LAN_HOST:?set LAN_HOST in .env to the host's LAN address}:3080"
+      - --trusted-host
+      - "${LAN_HOST:?set LAN_HOST in .env to the host's LAN address}"

@@ -47,3 +47,7 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 native/system/test/bin/
+
+# docker-compose runtime data and agent workspace
+/data/
+/workspace/

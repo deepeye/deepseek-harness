@@ -1,0 +1,34 @@
+# Secrets and local environment overrides; docker compose injects them at run time
+.env
+.env.*
+
+# Local tooling state. .git stays in the context: the Web build embeds
+# `git rev-parse HEAD`, and the final image drops it with the staged tree.
+.gitignore
+.claude
+.spec-workflow
+.vscode
+.idea
+
+# Installed dependencies and build outputs; the image rebuilds both
+node_modules
+**/node_modules
+**/lib
+**/dist
+**/*.tsbuildinfo
+.dsh-build
+# Host-built native payloads; the image builds the Linux ones itself
+native/system/packages/*/bin
+
+# Runtime data mounted by docker compose
+data
+workspace
+
+# Not needed to build artifacts
+docs
+website
+snapshots
+benchmarks
+.agents
+.github
+.gitlab-ci.yml
